@@ -27,9 +27,9 @@ size_t get_file_size(FILE *const file) {
 }
 
 /* Remember to free the memory allocated for the returned string */
-char *get_content_from_file(const char *const file_name) {
+char *get_content_from_file(const char *const filename) {
 	char *buffer = NULL;
-	FILE *const file = fopen(file_name, "rb");
+	FILE *const file = fopen(filename, "rb");
 	if (file != NULL) {
         const size_t file_size = get_file_size(file);
 		/* Allocate memory to store the entire file */
@@ -101,12 +101,19 @@ void ini_section_print_to(const struct Ini_Section *const ini_section, FILE *con
 }
 
 void ini_file_print_to(const struct Ini_File *const ini_file, FILE *const sink) {
-    size_t section_index;
+    size_t section_index, property_index;
     if (ini_file == NULL) {
         return;
     }
     for (section_index = 0; section_index < ini_file->sections_size; section_index++) {
-        ini_section_print_to(&ini_file->sections[section_index], sink);
+        if (section_index != 0) {
+            fprintf(sink, "[%s]\n", ini_file->sections[section_index].name);
+        }
+        for (property_index = 0; property_index < ini_file->sections[section_index].properties_size; property_index++) {
+            fprintf(sink, "%s = %s\n",
+                ini_file->sections[section_index].properties[property_index].key,
+                ini_file->sections[section_index].properties[property_index].value);
+        }
         putchar('\n');
     }
 }
@@ -119,7 +126,9 @@ char *ini_file_error_to_string(const enum Ini_File_Errors error) {
         "Couldn't open file",
         "Expected closing square bracket ']'",
         "Expected equals sign '='",
-        "Expected a value, but found a comment",
+        "A section name was not provided",
+        "A key was not provided",
+        "A value was not provided",
         "Didn't found the requested section",
         "Didn't found the requested property",
         "The requested property is not a valid integer number",
@@ -166,10 +175,7 @@ static int ini_file_parse_handle_error(Ini_File_Error_Callback callback, const c
 }
 
 /* TODO: Check for repeated section and key names? */
-/* TODO: Check for spaces inside of section and key names? */
 /* TODO: Sort the sections and keys? This would allow us to use binary search */
-/* TODO: we could allow keys and values to be strings delimited by "" or '',
- * which would allow us to use the characters "=,#,;" inside keys and values */
 
 /* Remember to free the memory allocated for the returned ini file structure */
 struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callback callback) {
@@ -204,14 +210,14 @@ struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callb
             cursor++;
             advance_white_spaces(&cursor);
             name = cursor;
-            advance_string_until(&cursor, "]#;\n");
+            advance_string_until(&cursor, "]#;\r\n");
             if (*cursor != ']') {
                 if (ini_file_parse_handle_error(callback, filename, line_number, line, ini_expected_clocing_bracket) != 0) {
                     goto ini_file_parse_error;
                 }
                 continue;
             }
-            /* Compute length of the key string and remove trailing whitespaces */
+            /* Compute length of the name string and remove trailing whitespaces */
             name_len = (size_t)(cursor - name);
             while ((name_len > 0) && (isspace((unsigned char)name[name_len - 1]))) {
                 name_len--;
@@ -226,35 +232,20 @@ struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callb
             continue;
         }
         key = cursor;
-        advance_string_until(&cursor, "=#;\n");
+        advance_string_until(&cursor, "=#; \t\r\n");
+        /* Compute length of the string name */
+        key_len = (size_t)(cursor - key);
+        advance_white_spaces(&cursor);
         if (*cursor != '=') {
-            /* Found an error, so we report it to the user using the callback provided. 
-             * In case of an error, if the callback returns an integer different from zero,
-             * we end the parsing and return NULL. */
             if (ini_file_parse_handle_error(callback, filename, line_number, line, ini_expected_equals) != 0) {
                 goto ini_file_parse_error;
             }
             continue;
         }
-        /* Compute length of the key string and remove trailing whitespaces */
-        key_len = (size_t)(cursor - key);
-        while ((key_len > 0) && (isspace((unsigned char)key[key_len - 1]))) {
-            key_len--;
-        }
         cursor++;
         advance_white_spaces(&cursor);
-        /* If it is a commment, we found an error */
-        if (strchr("#;", *cursor) != NULL) {
-            /* Found an error, so we report it to the user using the callback provided. 
-             * In case of an error, if the callback returns an integer different from zero,
-             * we end the parsing and return NULL. */
-            if (ini_file_parse_handle_error(callback, filename, line_number, line, ini_expected_value_got_comment) != 0) {
-                goto ini_file_parse_error;
-            }
-            continue;
-        }
         value = cursor;
-        advance_string_until(&cursor, "#;\n");
+        advance_string_until(&cursor, "#;\r\n");
         /* Compute length of the value string and remove trailing whitespaces */
         value_len = (size_t)(cursor - value);
         while ((value_len > 0) && (isspace((unsigned char)value[value_len - 1]))) {
@@ -277,11 +268,11 @@ ini_file_parse_error:
 
 enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file, const char *const name, const size_t name_len) {
     struct Ini_Section *section;
-    if ((ini_file == NULL) || (name == NULL)) {
+    if (ini_file == NULL) {
         return ini_invalid_parameters;
     }
-    if (name_len == 0) {
-        return ini_invalid_parameters;
+    if ((name == NULL) || (name_len == 0)) {
+        return ini_section_not_provided;
     }
     if ((ini_file->sections_size + 1) >= ini_file->sections_capacity) {
         const size_t new_cap = 2 * ini_file->sections_capacity;
@@ -310,7 +301,7 @@ enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file,
 
 enum Ini_File_Errors ini_file_add_section(struct Ini_File *const ini_file, const char *const name) {
     if (name == NULL) {
-        return ini_invalid_parameters;
+        return ini_section_not_provided;
     }
     return ini_file_add_section_sized(ini_file, name, strlen(name));
 }
@@ -318,11 +309,14 @@ enum Ini_File_Errors ini_file_add_section(struct Ini_File *const ini_file, const
 enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file, const char *const key, const size_t key_len, const char *const value, const size_t value_len) {
     struct Ini_Section *section;
     struct Key_Value_Pair *property;
-    if ((ini_file == NULL) || (key == NULL) || (value == NULL)) {
+    if (ini_file == NULL) {
         return ini_invalid_parameters;
     }
-    if ((key_len == 0) || (value_len == 0)) {
-        return ini_invalid_parameters;
+    if ((key == NULL) || (key_len == 0)) {
+        return ini_key_not_provided;
+    }
+    if ((value == NULL) || (value_len == 0)) {
+        return ini_value_not_provided;
     }
     if (ini_file->sections_size == 0) {
         return ini_allocation;
@@ -353,8 +347,11 @@ enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file
 }
 
 enum Ini_File_Errors ini_file_add_property(struct Ini_File *const ini_file, const char *const key, const char *const value) {
-    if ((key == NULL) || (value == NULL)) {
-        return ini_invalid_parameters;
+    if (key == NULL) {
+        return ini_key_not_provided;
+    }
+    if (value == NULL) {
+        return ini_value_not_provided;
     }
     return ini_file_add_property_sized(ini_file, key, strlen(key), value, strlen(value));
 }

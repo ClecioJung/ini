@@ -54,7 +54,9 @@ enum Ini_File_Errors {
     ini_couldnt_open_file,
     ini_expected_clocing_bracket,
     ini_expected_equals,
-    ini_expected_value_got_comment,
+    ini_section_not_provided,
+    ini_key_not_provided,
+    ini_value_not_provided,
     ini_no_such_section,
     ini_no_such_property,
     ini_not_integer,
@@ -70,7 +72,7 @@ typedef int (*Ini_File_Error_Callback)(const char *const filename, const size_t 
 
 size_t get_file_size(FILE *const file);
 /* Remember to free the memory allocated for the returned string */
-char *get_content_from_file(const char *const file_name);
+char *get_content_from_file(const char *const filename);
 
 struct Ini_File *ini_file_new(void);
 void ini_file_free(struct Ini_File *const ini_file);
@@ -81,12 +83,15 @@ char *ini_file_error_to_string(const enum Ini_File_Errors error);
 /* Remember to free the memory allocated for the returned ini file structure */
 struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callback callback);
 
-/* These functions returns (ini_no_error = 0) if everything worked correctly */
+/* These functions returns ini_no_error = 0 if everything worked correctly */
 enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file, const char *const name, const size_t name_len);
 enum Ini_File_Errors ini_file_add_section(struct Ini_File *const ini_file, const char *const name);
 enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file, const char *const key, const size_t key_len, const char *const value, const size_t value_len);
 enum Ini_File_Errors ini_file_add_property(struct Ini_File *const ini_file, const char *const key, const char *const value);
 enum Ini_File_Errors ini_file_save(const struct Ini_File *const ini_file, const char *const filename);
+
+/* These functions use sequential search algorithm to find the requested section and properties */
+/* These functions returns ini_no_error = 0 if everything worked correctly */
 enum Ini_File_Errors ini_file_find_section(struct Ini_File *const ini_file, const char *const section, struct Ini_Section **ini_section);
 enum Ini_File_Errors ini_file_find_property(struct Ini_File *const ini_file, const char *const section, const char *const key, char **value);
 enum Ini_File_Errors ini_file_find_integer(struct Ini_File *const ini_file, const char *const section, const char *const key, long *integer);
