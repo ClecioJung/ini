@@ -222,13 +222,13 @@ static char *copy_sized_string(const char *const sized_str, const size_t len) {
 }
 #endif
 
-static int ini_file_parse_handle_error(Ini_File_Error_Callback callback, const char *const filename, const size_t line_number, const char *const line, const enum Ini_File_Errors error) {
+static int ini_file_parse_handle_error(Ini_File_Error_Callback callback, const char *const filename, const size_t line_number, const size_t column, const char *const line, const enum Ini_File_Errors error) {
     /* This function is called when we found an error in the parsing.
      * So, we report it to the user using the callback provided. 
      * If the callback returns an integer different from zero,
      * we end the parsing and return NULL. */
     if (callback != NULL) {
-        return callback(filename, line_number, line, error);
+        return callback(filename, line_number, column, line, error);
     }
     return 0;
 }
@@ -244,12 +244,14 @@ struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callb
     FILE *file;
     struct Ini_File *ini_file = ini_file_new();
     if (ini_file == NULL) {
-        ini_file_parse_handle_error(callback, filename, 0, NULL, ini_allocation);
+        /* This is a critical error, so we don't proceed, even if the callback returns 0 */
+        ini_file_parse_handle_error(callback, filename, 0, 0, NULL, ini_allocation);
         return NULL;
     }
     file = fopen(filename, "rb");
 	if (file == NULL) {
-        ini_file_parse_handle_error(callback, filename, 0, NULL, ini_couldnt_open_file);
+        /* This is a critical error, so we don't proceed, even if the callback returns 0 */
+        ini_file_parse_handle_error(callback, filename, 0, 0, NULL, ini_couldnt_open_file);
         ini_file_free(ini_file);
         return NULL;
     }
@@ -271,7 +273,7 @@ struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callb
             name = cursor;
             advance_string_until(&cursor, "]#;\r\n");
             if (*cursor != ']') {
-                if (ini_file_parse_handle_error(callback, filename, line_number, line, ini_expected_clocing_bracket) != 0) {
+                if (ini_file_parse_handle_error(callback, filename, line_number, (size_t)(cursor-line+1), line, ini_expected_clocing_bracket) != 0) {
                     goto ini_file_parse_error;
                 }
                 continue;
@@ -283,7 +285,7 @@ struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callb
             }
             error = ini_file_add_section_sized(ini_file, name, name_len);
             if (error != ini_no_error) {
-                if (ini_file_parse_handle_error(callback, filename, line_number, line, error) != 0) {
+                if (ini_file_parse_handle_error(callback, filename, line_number, (size_t)(cursor-line+1), line, error) != 0) {
                     goto ini_file_parse_error;
                 }
             }
@@ -294,9 +296,15 @@ struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callb
         advance_string_until(&cursor, "=#; \t\r\n");
         /* Compute length of the string name */
         key_len = (size_t)(cursor - key);
+        if (key_len == 0) {
+            if (ini_file_parse_handle_error(callback, filename, line_number, (size_t)(cursor-line+1), line, ini_key_not_provided) != 0) {
+                goto ini_file_parse_error;
+            }
+            continue;
+        }
         advance_white_spaces(&cursor);
         if (*cursor != '=') {
-            if (ini_file_parse_handle_error(callback, filename, line_number, line, ini_expected_equals) != 0) {
+            if (ini_file_parse_handle_error(callback, filename, line_number, (size_t)(cursor-line+1), line, ini_expected_equals) != 0) {
                 goto ini_file_parse_error;
             }
             continue;
@@ -312,7 +320,7 @@ struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callb
         }
         error = ini_file_add_property_sized(ini_file, key, key_len, value, value_len);
         if (error != ini_no_error) {
-            if (ini_file_parse_handle_error(callback, filename, line_number, line, error) != 0) {
+            if (ini_file_parse_handle_error(callback, filename, line_number, (size_t)(cursor-line+1), line, error) != 0) {
                 goto ini_file_parse_error;
             }
         }

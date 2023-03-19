@@ -114,7 +114,7 @@ enum Ini_File_Errors {
 /* Callback used to handle errors and warnings in the parsing of INI files (function ini_file_parse).
  * In case of an error, this callback is called, and if it returns an integer different from zero,
  * we end the parsing and return NULL. */
-typedef int (*Ini_File_Error_Callback)(const char *const filename, const size_t line_number, const char *const line, const enum Ini_File_Errors error);
+typedef int (*Ini_File_Error_Callback)(const char *const filename, const size_t line_number, const size_t column, const char *const line, const enum Ini_File_Errors error);
 
 size_t get_file_size(FILE *const file);
 /* Remember to free the memory allocated for the returned string */

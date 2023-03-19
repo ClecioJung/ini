@@ -8,8 +8,8 @@
 
 #include "../ini_file.h"
 
-int error_callback(const char *const filename, const size_t line_number, const char *const line, const enum Ini_File_Errors error) {
-    fprintf(stderr, "%s:%lu %s:\n%s\n", filename, line_number, ini_file_error_to_string(error), line);
+int error_callback(const char *const filename, const size_t line_number, const size_t column, const char *const line, const enum Ini_File_Errors error) {
+    fprintf(stderr, "%s:%lu:%lu %s:\n%s\n", filename, line_number, column, ini_file_error_to_string(error), line);
     return 0;
 }
 
