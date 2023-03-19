@@ -5,13 +5,14 @@
 # Name of the executables to be generated
 EXEC      := examples/ini_file_read \
              examples/ini_file_search \
-			 examples/ini_file_create
+             examples/ini_file_create
 
 # Library files
 LIB_FILES := ini_file.c ini_file.h
 
 # Flags for compiler
-CFLAGS    := -W -Wall -Wextra -pedantic -Wconversion -Werror -flto -std=c89 -O2
+CFLAGS    := -W -Wall -Wextra -pedantic -Wconversion \
+             -Werror -flto -std=c89 -O2
 
 # ----------------------------------------
 # Compilation and linking rules

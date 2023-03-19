@@ -29,6 +29,46 @@
 #ifndef __INI_FILE
 #define __INI_FILE
 
+/* Summary:
+ * INI files are not standardized, meaning that different implementations may have
+ * differences. This implementation uses the # and ; characters to define
+ * single-line comments. As a result, these characters cannot be used when defining
+ * section names, keys, and values. Special characters such as =, #, and ; are not
+ * allowed in key names. However, spaces and the = character can be used when
+ * defining values, as long as the characters # and ; are not used. Section names
+ * can have spaces, but cannot include the characters ], #, and ;. Nested sections
+ * are not currently implemented, and duplicate names are allowed (for now). Quoted
+ * strings and escaped characters are not supported in this implementation.
+ * If a key-value pair appears in the INI file before the first section is declared,
+ * it will be treated as belonging to the "global" section. This allows properties
+ * to be defined outside of any specific section and still be easily accessible in
+ * the program. 
+ */
+
+
+/* This is a implementation of a custom string allocator to store the strings found
+ * inside the INI. If you don't want to use this approach, just comment the
+ * definition of the macro USE_CUSTOM_STRING_ALLOCATOR bellow. In this case, all the
+ * string allocations will be performed by expensive malloc calls.
+ * 
+ * This custom string allocator consists of a linked-list of large buffers. It is
+ * designed to be memory-efficient and avoid memory fragmentation. Whenever a new
+ * string is found in the INI file, it is copied to an available buffer in the
+ * linked list, allocating new buffers as needed. This approach reduces the number
+ * of malloc and free calls, which can be expensive in terms of performance.
+ */
+#define USE_CUSTOM_STRING_ALLOCATOR
+#ifdef USE_CUSTOM_STRING_ALLOCATOR
+struct String_Buffer {
+    char buffer[4096];
+    struct String_Buffer *next;
+    /* This index points to the next valid location to store the string.
+     * If the buffer is full, the index will equal -1. In this case we shall
+     * use one of the next buffers. */
+    int index;
+};
+#endif
+
 struct Key_Value_Pair {
     char *key;
     char *value;
@@ -36,12 +76,17 @@ struct Key_Value_Pair {
 
 struct Ini_Section {
     char *name;
+    /* The properties of the section are stored in a dynamic array */
     size_t properties_size;
     size_t properties_capacity;
     struct Key_Value_Pair *properties;
 };
 
 struct Ini_File {
+#ifdef USE_CUSTOM_STRING_ALLOCATOR
+    struct String_Buffer *strings;
+#endif
+    /* The sections of the ini file are stored in a dynamic array */
     size_t sections_size;
     size_t sections_capacity;
     struct Ini_Section *sections;
@@ -60,6 +105,7 @@ enum Ini_File_Errors {
     ini_no_such_section,
     ini_no_such_property,
     ini_not_integer,
+    ini_not_unsigned,
     ini_not_float,
 
     NUMBER_OF_INI_FILE_ERRORS
@@ -90,11 +136,14 @@ enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file
 enum Ini_File_Errors ini_file_add_property(struct Ini_File *const ini_file, const char *const key, const char *const value);
 enum Ini_File_Errors ini_file_save(const struct Ini_File *const ini_file, const char *const filename);
 
-/* These functions use sequential search algorithm to find the requested section and properties */
-/* These functions returns ini_no_error = 0 if everything worked correctly */
+/* These functions use sequential search algorithm to find the requested section and properties.
+ * They return ini_no_error = 0 if everything worked correctly.
+ * The found value will be stores at the memory address provided by the caller.
+ * If no value is found, the function will not modify the value stored at the address provided. */
 enum Ini_File_Errors ini_file_find_section(struct Ini_File *const ini_file, const char *const section, struct Ini_Section **ini_section);
 enum Ini_File_Errors ini_file_find_property(struct Ini_File *const ini_file, const char *const section, const char *const key, char **value);
 enum Ini_File_Errors ini_file_find_integer(struct Ini_File *const ini_file, const char *const section, const char *const key, long *integer);
+enum Ini_File_Errors ini_file_find_unsigned(struct Ini_File *const ini_file, const char *const section, const char *const key, unsigned long *uint);
 enum Ini_File_Errors ini_file_find_float(struct Ini_File *const ini_file, const char *const section, const char *const key, double *real);
 
 #endif  /* __INI_FILE */

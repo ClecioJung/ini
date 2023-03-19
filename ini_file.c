@@ -15,8 +15,18 @@
 /* Most systems do not allow for a line greather than 4 kbytes */
 #define MAX_LINE_SIZE 4096
 
-#define INITIAL_NUMBER_OF_SECTIONS 10
-#define INITIAL_NUMBER_OF_PROPERTIES 10
+#define INITIAL_NUMBER_OF_SECTIONS 32
+#define INITIAL_NUMBER_OF_PROPERTIES 32
+
+#ifdef USE_CUSTOM_STRING_ALLOCATOR
+static void string_buffer_free(struct String_Buffer *buffer) {
+    if (buffer == NULL) {
+        return;
+    }
+    string_buffer_free(buffer->next);
+    free(buffer);
+}
+#endif
 
 size_t get_file_size(FILE *const file) {
     long file_size;
@@ -40,7 +50,7 @@ char *get_content_from_file(const char *const filename) {
 			buffer[file_size] = '\0';
 			if (result != file_size) {
 				/* Reading file error, free dinamically allocated memory */
-				free((void *)buffer);
+				free(buffer);
 				buffer = NULL;
 			}
 		}
@@ -52,10 +62,22 @@ char *get_content_from_file(const char *const filename) {
 struct Ini_File *ini_file_new(void) {
     struct Ini_File *ini_file = malloc(sizeof(struct Ini_File));
     if (ini_file != NULL) {
+#ifdef USE_CUSTOM_STRING_ALLOCATOR
+        ini_file->strings = malloc(sizeof(struct String_Buffer));
+        if (ini_file->strings == NULL) {
+            free(ini_file);
+            return NULL;
+        }
+        ini_file->strings->index = 0;
+        ini_file->strings->next = NULL;
+#endif
         ini_file->sections_size = 0;
         ini_file->sections_capacity = INITIAL_NUMBER_OF_SECTIONS;
         ini_file->sections = malloc(ini_file->sections_capacity * sizeof(struct Ini_Section));
         if (ini_file->sections == NULL) {
+#ifdef USE_CUSTOM_STRING_ALLOCATOR
+            free(ini_file->strings);
+#endif
             free(ini_file);
             return NULL;
         }
@@ -69,16 +91,22 @@ struct Ini_File *ini_file_new(void) {
 }
 
 void ini_file_free(struct Ini_File *const ini_file) {
-    size_t i, j;
+    size_t i;
     if (ini_file == NULL) {
         return;
     }
+#ifdef USE_CUSTOM_STRING_ALLOCATOR
+    string_buffer_free(ini_file->strings);
+#endif
     for (i = 0; i < ini_file->sections_size; i++) {
-        free((void *)ini_file->sections[i].name);
+#ifndef USE_CUSTOM_STRING_ALLOCATOR
+        size_t j;
+        free(ini_file->sections[i].name);
         for (j = 0; j < ini_file->sections[i].properties_size; j++) {
-            free((void *)ini_file->sections[i].properties[j].key);
-            free((void *)ini_file->sections[i].properties[j].value);
+            free(ini_file->sections[i].properties[j].key);
+            free(ini_file->sections[i].properties[j].value);
         }
+#endif
         free(ini_file->sections[i].properties);
         ini_file->sections[i].properties_capacity = 0;
         ini_file->sections[i].properties_size = 0;
@@ -86,7 +114,7 @@ void ini_file_free(struct Ini_File *const ini_file) {
     free(ini_file->sections);
     ini_file->sections_capacity = 0;
     ini_file->sections_size = 0;
-    free((void *)ini_file);
+    free(ini_file);
 }
 
 void ini_section_print_to(const struct Ini_Section *const ini_section, FILE *const sink) {
@@ -132,6 +160,7 @@ char *ini_file_error_to_string(const enum Ini_File_Errors error) {
         "Didn't found the requested section",
         "Didn't found the requested property",
         "The requested property is not a valid integer number",
+        "The requested property is not a valid unsigned number",
         "The requested property is not a valid floating point number",
     };
 #ifdef _Static_assert
@@ -153,7 +182,36 @@ static void advance_string_until(char **const str, const char *const chars) {
     }
 }
 
-/* TODO: We can have a large buffer of memory and store each new string in there */
+#ifdef USE_CUSTOM_STRING_ALLOCATOR
+static char *copy_sized_string(struct String_Buffer *strings, const char *const sized_str, const size_t len) {
+    char *str;
+    if (strings == NULL) {
+        return NULL;
+    }
+    while ((strings->index < 0) && (strings->next != NULL)) {
+        strings = strings->next;
+    }
+    if (strings->index < 0) {
+        return NULL;
+    }
+    if (((size_t)strings->index + len + 1) > sizeof(strings->buffer)) {
+        strings->index = -1;
+        strings->next = malloc(sizeof(struct String_Buffer));
+        if (strings->next == NULL) {
+            return NULL;
+        }
+        strings = strings->next;
+        strings->index = 0;
+        strings->next = NULL;
+    }
+    /* Allocates the memory to store the string */
+    str = &strings->buffer[strings->index];
+    strings->index += (int)len + 1;
+    strncpy(str, sized_str, len);
+    str[len] = '\0';
+    return str;
+}
+#else
 static char *copy_sized_string(const char *const sized_str, const size_t len) {
     char *str = malloc(len + 1);
     if (str != NULL) {
@@ -162,6 +220,7 @@ static char *copy_sized_string(const char *const sized_str, const size_t len) {
     }
     return str;
 }
+#endif
 
 static int ini_file_parse_handle_error(Ini_File_Error_Callback callback, const char *const filename, const size_t line_number, const char *const line, const enum Ini_File_Errors error) {
     /* This function is called when we found an error in the parsing.
@@ -284,7 +343,11 @@ enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file,
         ini_file->sections_capacity = new_cap;
     }
     section = &ini_file->sections[ini_file->sections_size];
+#ifdef USE_CUSTOM_STRING_ALLOCATOR
+    section->name = copy_sized_string(ini_file->strings, name, name_len);
+#else
     section->name = copy_sized_string(name, name_len);
+#endif
     if (section->name == NULL) {
         return ini_allocation;
     }
@@ -333,11 +396,19 @@ enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file
         section->properties_capacity = new_cap;
     }
     property = &section->properties[section->properties_size];
+#ifdef USE_CUSTOM_STRING_ALLOCATOR
+    property->key = copy_sized_string(ini_file->strings, key, key_len);
+#else
     property->key = copy_sized_string(key, key_len);
+#endif
     if (property->key == NULL) {
         return ini_allocation;
     }
+#ifdef USE_CUSTOM_STRING_ALLOCATOR
+    property->value = copy_sized_string(ini_file->strings, value, value_len);
+#else
     property->value = copy_sized_string(value, value_len);
+#endif
     if (property->value == NULL) {
         free(property->key);
         return ini_allocation;
@@ -414,6 +485,7 @@ enum Ini_File_Errors ini_file_find_property(struct Ini_File *const ini_file, con
 
 enum Ini_File_Errors ini_file_find_integer(struct Ini_File *const ini_file, const char *const section, const char *const key, long *integer) {
     char *value, *end;
+    long i_value;
     enum Ini_File_Errors error;
     if (integer == NULL) {
         return ini_invalid_parameters;
@@ -422,15 +494,36 @@ enum Ini_File_Errors ini_file_find_integer(struct Ini_File *const ini_file, cons
     if (error != ini_no_error) {
         return error;
     }
-    *integer = strtol(value, &end, 10);
+    i_value = strtol(value, &end, 10);
     if (*end != '\0') {
         return ini_not_integer;
     }
+    *integer = i_value;
+    return ini_no_error;
+}
+
+enum Ini_File_Errors ini_file_find_unsigned(struct Ini_File *const ini_file, const char *const section, const char *const key, unsigned long *uint) {
+    char *value, *end;
+    unsigned long ui_value;
+    enum Ini_File_Errors error;
+    if (uint == NULL) {
+        return ini_invalid_parameters;
+    }
+    error = ini_file_find_property(ini_file, section, key, &value);
+    if (error != ini_no_error) {
+        return error;
+    }
+    ui_value = strtoul(value, &end, 10);
+    if (*end != '\0') {
+        return ini_not_unsigned;
+    }
+    *uint = ui_value;
     return ini_no_error;
 }
 
 enum Ini_File_Errors ini_file_find_float(struct Ini_File *const ini_file, const char *const section, const char *const key, double *real) {
     char *value, *end;
+    double d_value;
     enum Ini_File_Errors error;
     if (real == NULL) {
         return ini_invalid_parameters;
@@ -439,10 +532,11 @@ enum Ini_File_Errors ini_file_find_float(struct Ini_File *const ini_file, const 
     if (error != ini_no_error) {
         return error;
     }
-    *real = strtod(value, &end);
+    d_value = strtod(value, &end);
     if (*end != '\0') {
         return ini_not_float;
     }
+    *real = d_value;
     return ini_no_error;
 }
 
