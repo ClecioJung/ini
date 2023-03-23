@@ -64,14 +64,20 @@ struct Ini_File *ini_file_new(void) {
         return NULL;
     }
     memset(ini_file, 0, sizeof(struct Ini_File));
-    /* TODO: If we sort the sections, we shall think in another way to store
-     * and retrieve the data of this global section */
-    /* The first section is global to the file */
-    if (ini_file_add_section(ini_file, "global") != 0) {
-        ini_file_free(ini_file);
-        return NULL;
-    }
+    ini_file->current_section = &ini_file->global_section;
     return ini_file;
+}
+
+static void ini_section_free(struct Ini_Section *const ini_section) {
+#ifndef USE_CUSTOM_STRING_ALLOCATOR
+    size_t i;
+    free(ini_section->name);
+    for (i = 0; i < ini_section->properties_size; i++) {
+        free(ini_section->properties[i].key);
+        free(ini_section->properties[i].value);
+    }
+#endif
+    free(ini_section->properties);  
 }
 
 void ini_file_free(struct Ini_File *const ini_file) {
@@ -83,16 +89,9 @@ void ini_file_free(struct Ini_File *const ini_file) {
     string_buffer_free(ini_file->strings);
 #endif
     for (i = 0; i < ini_file->sections_size; i++) {
-#ifndef USE_CUSTOM_STRING_ALLOCATOR
-        size_t j;
-        free(ini_file->sections[i].name);
-        for (j = 0; j < ini_file->sections[i].properties_size; j++) {
-            free(ini_file->sections[i].properties[j].key);
-            free(ini_file->sections[i].properties[j].value);
-        }
-#endif
-        free(ini_file->sections[i].properties);
+        ini_section_free(&ini_file->sections[i]);
     }
+    ini_section_free(&ini_file->global_section);
     free(ini_file->sections);
     free(ini_file);
 }
@@ -102,26 +101,25 @@ void ini_section_print_to(const struct Ini_Section *const ini_section, FILE *con
     if (ini_section == NULL) {
         return;
     }
-    fprintf(sink, "[%s]\n", ini_section->name);
+    if ((ini_section->name != NULL) && (ini_section->name[0] != '\0')) {
+        fprintf(sink, "[%s]\n", ini_section->name);
+    }
     for (property_index = 0; property_index < ini_section->properties_size; property_index++) {
         fprintf(sink, "%s = %s\n", ini_section->properties[property_index].key, ini_section->properties[property_index].value);
     }
 }
 
 void ini_file_print_to(const struct Ini_File *const ini_file, FILE *const sink) {
-    size_t section_index, property_index;
+    size_t section_index;
     if (ini_file == NULL) {
         return;
     }
+    if (ini_file->global_section.properties_size > 0) {
+        ini_section_print_to(&ini_file->global_section, sink);
+        putchar('\n');
+    }
     for (section_index = 0; section_index < ini_file->sections_size; section_index++) {
-        if (section_index != 0) {
-            fprintf(sink, "[%s]\n", ini_file->sections[section_index].name);
-        }
-        for (property_index = 0; property_index < ini_file->sections[section_index].properties_size; property_index++) {
-            fprintf(sink, "%s = %s\n",
-                ini_file->sections[section_index].properties[property_index].key,
-                ini_file->sections[section_index].properties[property_index].value);
-        }
+        ini_section_print_to(&ini_file->sections[section_index], sink);
         putchar('\n');
     }
 }
@@ -137,6 +135,7 @@ char *ini_file_error_to_string(const enum Ini_File_Errors error) {
         "A section name was not provided",
         "A key was not provided",
         "A value was not provided",
+        "This key already exists",
         "Didn't found the requested section",
         "Didn't found the requested property",
         "The requested property is not a valid integer number",
@@ -152,11 +151,25 @@ char *ini_file_error_to_string(const enum Ini_File_Errors error) {
 
 /* This function is usefull for debug purposes */
 void ini_file_info(const struct Ini_File *const ini_file) {
-    size_t siz, i, allocs = 1, properties = 0;
+    size_t siz, i, allocs = 1, properties = 0, sections = ini_file->sections_size;
     if (ini_file == NULL) {
         return;
     }
     siz = sizeof(*ini_file) + sizeof(*ini_file->sections) * ini_file->sections_capacity;
+    if (ini_file->global_section.properties_size > 0) {
+#ifndef USE_CUSTOM_STRING_ALLOCATOR
+        size_t j;
+        for (j = 0; j < ini_file->global_section.properties_size; j++) {
+            siz += 1 + strlen(ini_file->global_section.properties[j].key);
+            siz += 1 + strlen(ini_file->global_section.properties[j].value);
+        }
+        allocs += 2 * ini_file->global_section.properties_size;
+#endif
+        properties += ini_file->global_section.properties_size;
+        siz += sizeof(*ini_file->global_section.properties) * ini_file->global_section.properties_capacity;
+        allocs++;
+        sections++;
+    }
     if (ini_file->sections_size > 0) {
         allocs++;
     }
@@ -186,7 +199,7 @@ void ini_file_info(const struct Ini_File *const ini_file) {
             allocs++;
         }
     }
-    printf("Sections:         %lu\n", ini_file->sections_size);
+    printf("Sections:         %lu\n", sections);
     printf("Properties:       %lu\n", properties);
     printf("Allocated chunks: %lu\n", allocs);
     printf("Memory used:      %lu bytes\n", siz);
@@ -246,9 +259,6 @@ static int ini_file_parse_handle_error(Ini_File_Error_Callback callback, const c
     return 0;
 }
 
-/* TODO: Check for repeated section and key names? */
-/* TODO: Sort the sections and keys? This would allow us to use binary search */
-
 /* Remember to free the memory allocated for the returned ini file structure */
 struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callback callback) {
     enum Ini_File_Errors error;
@@ -286,7 +296,7 @@ struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callb
             name = cursor;
             advance_string_until(&cursor, "]#;\r\n");
             if (*cursor != ']') {
-                if (ini_file_parse_handle_error(callback, filename, line_number, (size_t)(cursor-line+1), line, ini_expected_clocing_bracket) != 0) {
+                if (ini_file_parse_handle_error(callback, filename, line_number, (size_t)(cursor-line+1), line, ini_expected_closing_bracket) != 0) {
                     goto ini_file_parse_error;
                 }
                 continue;
@@ -346,152 +356,96 @@ ini_file_parse_error:
     return NULL;
 }
 
-static size_t max_size(const size_t a, const size_t b) {
-    return ((a > b) ? a : b);
+/* This function compares a sized-string str1 with a null-terminated string str2 */
+static int compare_sized_str_to_cstr(const char* str1, const char* str2, size_t len1) {
+    const int comp = strncmp(str1, str2, len1);
+    /* If str1 is equal to the first len characters of str2,
+     * but str2 is longer than len characters, str1 is considered
+     * less than str2 */
+    if ((comp == 0) && (str2[len1] > '\0')) {
+        return -1;
+    }
+    return comp;
 }
 
-enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file, const char *const name, const size_t name_len) {
-    struct Ini_Section *ini_section;
-    if (ini_file == NULL) {
-        return ini_invalid_parameters;
-    }
-    if ((name == NULL) || (name_len == 0)) {
-        return ini_section_not_provided;
-    }
-    /* Check if we need expand our array of sections */
-    if ((ini_file->sections_size + 1) >= ini_file->sections_capacity) {
-        const size_t new_cap = max_size(2 * ini_file->sections_capacity, INITIAL_SECTIONS_CAPACITY);
-        struct Ini_Section *const new_sections = realloc(ini_file->sections, new_cap * sizeof(struct Ini_Section));
-        if (new_sections == NULL) {
-            return ini_allocation;
-        }
-        ini_file->sections = new_sections;
-        ini_file->sections_capacity = new_cap;
-    }
-    /* Insert a new section at the end of the array */
-    ini_section = &ini_file->sections[ini_file->sections_size];
-    memset(ini_section, 0, sizeof(struct Ini_Section));
-    ini_section->name = copy_sized_string(ini_file, name, name_len);
-    if (ini_section->name == NULL) {
-        return ini_allocation;
-    }
-    ini_file->sections_size++;
-    return ini_no_error;
-}
-
-enum Ini_File_Errors ini_file_add_section(struct Ini_File *const ini_file, const char *const name) {
-    if (name == NULL) {
-        return ini_section_not_provided;
-    }
-    return ini_file_add_section_sized(ini_file, name, strlen(name));
-}
-
-enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file, const char *const key, const size_t key_len, const char *const value, const size_t value_len) {
-    struct Ini_Section *ini_section;
-    struct Key_Value_Pair *property;
-    if (ini_file == NULL) {
-        return ini_invalid_parameters;
-    }
-    if ((key == NULL) || (key_len == 0)) {
-        return ini_key_not_provided;
-    }
-    if ((value == NULL) || (value_len == 0)) {
-        return ini_value_not_provided;
-    }
-    if (ini_file->sections_size == 0) {
-        return ini_allocation;
-    }
-    /* Insert the new property at the last section */
-    ini_section = &ini_file->sections[ini_file->sections_size - 1];
-    if ((ini_section->properties_size + 1) >= ini_section->properties_capacity) {
-        const size_t new_cap = max_size(2 * ini_section->properties_capacity, INITIAL_PROPERTIES_CAPACITY);
-        struct Key_Value_Pair *const new_properties = realloc(ini_section->properties, new_cap * sizeof(struct Key_Value_Pair));
-        if (new_properties == NULL) {
-            return ini_allocation;
-        }
-        ini_section->properties = new_properties;
-        ini_section->properties_capacity = new_cap;
-    }
-    property = &ini_section->properties[ini_section->properties_size];
-    property->key = copy_sized_string(ini_file, key, key_len);
-    if (property->key == NULL) {
-        return ini_allocation;
-    }
-    property->value = copy_sized_string(ini_file, value, value_len);
-    if (property->value == NULL) {
-#ifndef USE_CUSTOM_STRING_ALLOCATOR
-        free(property->key);
-#endif
-        return ini_allocation;
-    }
-    ini_section->properties_size++;
-    return ini_no_error;
-}
-
-enum Ini_File_Errors ini_file_add_property(struct Ini_File *const ini_file, const char *const key, const char *const value) {
-    if (key == NULL) {
-        return ini_key_not_provided;
-    }
-    if (value == NULL) {
-        return ini_value_not_provided;
-    }
-    return ini_file_add_property_sized(ini_file, key, strlen(key), value, strlen(value));
-}
-
-enum Ini_File_Errors ini_file_save(const struct Ini_File *const ini_file, const char *const filename) {
-    FILE *file;
-    if (ini_file == NULL) {
-        return ini_invalid_parameters;
-    }
-    file = fopen(filename, "wb");
-	if (file == NULL) {
-        return ini_couldnt_open_file;
-    }
-    ini_file_print_to(ini_file, file);
-    fclose(file);
-    return ini_no_error;
-}
-
-enum Ini_File_Errors ini_file_find_section(struct Ini_File *const ini_file, const char *const section, struct Ini_Section **ini_section) {
-    size_t section_index;
-    if ((ini_file == NULL) || (section == NULL) || (ini_section == NULL)) {
-        return ini_invalid_parameters;
-    }
-    if (strlen(section) == 0) {
-        return ini_invalid_parameters;
-    }
-    for (section_index = 0; section_index < ini_file->sections_size; section_index++) {
-        if (strcmp(ini_file->sections[section_index].name, section) == 0) {
-            *ini_section = &ini_file->sections[section_index];
+/* Binary search in the array of sections */
+static enum Ini_File_Errors ini_file_find_section_index(struct Ini_File *const ini_file, const char *const section, const size_t section_len, size_t *const index) {
+    size_t low = 0;
+    size_t high = ini_file->sections_size - 1;
+    while ((low <= high) && (high < ini_file->sections_size)) {
+        int comp;
+        *index = (low + high) / 2;
+        comp = compare_sized_str_to_cstr(section, ini_file->sections[*index].name, section_len);
+        if (comp < 0) {
+            high = *index - 1;
+        } else if (comp > 0) {
+            low = *index + 1;
+        } else {
             return ini_no_error;
         }
     }
-    /* Didn't found the requested section */
+    /* Didn't found the requested section, so return the correct index to insert the new element, keeping the order of the array */
+    *index = low;
     return ini_no_such_section;
 }
 
-enum Ini_File_Errors ini_file_find_property(struct Ini_File *const ini_file, const char *const section, const char *const key, char **value) {
-    struct Ini_Section *ini_section;
-    size_t property_index;
-    enum Ini_File_Errors error;
-    if ((ini_file == NULL) || (section == NULL) || (key == NULL) || (value == NULL)) {
+/* Binary search in the array of properties */
+static enum Ini_File_Errors ini_file_find_key_index(struct Ini_Section *const ini_section, const char *const key, const size_t key_len, size_t *const index) {
+    size_t low = 0;
+    size_t high = ini_section->properties_size - 1;
+    while ((low <= high) && (high < ini_section->properties_size)) {
+        int comp;
+        *index = (low + high) / 2;
+        comp = compare_sized_str_to_cstr(key, ini_section->properties[*index].key, key_len);
+        if (comp < 0) {
+            high = *index - 1;
+        } else if (comp > 0) {
+            low = *index + 1;
+        } else {
+            return ini_no_error;
+        }
+    }
+    /* Didn't found the requested key, so return the correct index to insert the new element, keeping the order of the array */
+    *index = low;
+    return ini_no_such_section;
+}
+
+enum Ini_File_Errors ini_file_find_section(struct Ini_File *const ini_file, const char *const section, struct Ini_Section **ini_section) {
+    enum Ini_File_Errors  error;
+    size_t section_index;
+    if ((ini_file == NULL) || (ini_section == NULL)) {
         return ini_invalid_parameters;
     }
-    if (strlen(key) == 0) {
+    if ((section == NULL) || (section[0] == '\0')) {
+        *ini_section = &ini_file->global_section;
+        return ini_no_error;
+    }
+    error = ini_file_find_section_index(ini_file, section, strlen(section), &section_index);
+    if (error == ini_no_error) {
+        *ini_section = &ini_file->sections[section_index];
+    }
+    return error;
+}
+
+enum Ini_File_Errors ini_file_find_property(struct Ini_File *const ini_file, const char *const section, const char *const key, char **value) {
+    enum Ini_File_Errors error;
+    struct Ini_Section *ini_section;
+    size_t property_index;
+    if ((ini_file == NULL) || (key == NULL) || (value == NULL)) {
+        return ini_invalid_parameters;
+    }
+    if (key[0] == '\0') {
         return ini_invalid_parameters;
     }
     error = ini_file_find_section(ini_file, section, &ini_section);
     if (error != ini_no_error) {
         return error;
     }
-    for (property_index = 0; property_index < ini_section->properties_size; property_index++) {
-        if (strcmp(ini_section->properties[property_index].key, key) == 0) {
-            *value = ini_section->properties[property_index].value;
-            return ini_no_error;
-        }
+    error = ini_file_find_key_index(ini_section, key, strlen(key), &property_index);
+    if (error == ini_no_error) {
+        *value = ini_section->properties[property_index].value;
     }
-    /* Didn't found the requested property */
-    return ini_no_such_property;
+    return error;
 }
 
 enum Ini_File_Errors ini_file_find_integer(struct Ini_File *const ini_file, const char *const section, const char *const key, long *integer) {
@@ -548,6 +502,127 @@ enum Ini_File_Errors ini_file_find_float(struct Ini_File *const ini_file, const 
         return ini_not_float;
     }
     *real = d_value;
+    return ini_no_error;
+}
+
+static size_t max_size(const size_t a, const size_t b) {
+    return ((a > b) ? a : b);
+}
+
+enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file, const char *const name, const size_t name_len) {
+    size_t section_index;
+    char *copied_name;
+    if (ini_file == NULL) {
+        return ini_invalid_parameters;
+    }
+    if ((name == NULL) || (name_len == 0)) {
+        return ini_section_not_provided;
+    }
+    if (ini_file_find_section_index(ini_file, name, name_len, &section_index) == ini_no_error) {
+        /* There is already a section with that name so we just update the current section */
+        ini_file->current_section = &ini_file->sections[section_index];
+        return ini_no_error;
+    }
+    /* Check if we need expand our array of sections */
+    if ((ini_file->sections_size + 1) >= ini_file->sections_capacity) {
+        const size_t new_cap = max_size(2 * ini_file->sections_capacity, INITIAL_SECTIONS_CAPACITY);
+        struct Ini_Section *const new_sections = realloc(ini_file->sections, new_cap * sizeof(struct Ini_Section));
+        if (new_sections == NULL) {
+            return ini_allocation;
+        }
+        ini_file->sections = new_sections;
+        ini_file->sections_capacity = new_cap;
+    }
+    /* Allocates memory to store the section name */
+    copied_name = copy_sized_string(ini_file, name, name_len);
+    if (copied_name == NULL) {
+        return ini_allocation;
+    }
+    /* Updates the current section */
+    ini_file->current_section = &ini_file->sections[section_index];
+    /* Moves the sections to insert the new section in the middle, keeping the array sorted by names */
+    memmove((ini_file->current_section + 1), ini_file->current_section, (ini_file->sections_size - section_index)*sizeof(struct Ini_Section));
+    memset(ini_file->current_section, 0, sizeof(struct Ini_Section));
+    ini_file->current_section->name = copied_name;
+    ini_file->sections_size++;
+    return ini_no_error;
+}
+
+enum Ini_File_Errors ini_file_add_section(struct Ini_File *const ini_file, const char *const name) {
+    if (name == NULL) {
+        return ini_section_not_provided;
+    }
+    return ini_file_add_section_sized(ini_file, name, strlen(name));
+}
+
+enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file, const char *const key, const size_t key_len, const char *const value, const size_t value_len) {
+    size_t property_index;
+    struct Key_Value_Pair *property;
+    char *copied_key, *copied_value;
+    if (ini_file == NULL) {
+        return ini_invalid_parameters;
+    }
+    if ((key == NULL) || (key_len == 0)) {
+        return ini_key_not_provided;
+    }
+    if ((value == NULL) || (value_len == 0)) {
+        return ini_value_not_provided;
+    }
+    if (ini_file_find_key_index(ini_file->current_section, key, key_len, &property_index) == ini_no_error) {
+        /* There is already a property with that key name, which is not allowed */
+        return ini_repeated_key;
+    }
+    if ((ini_file->current_section->properties_size + 1) >= ini_file->current_section->properties_capacity) {
+        const size_t new_cap = max_size(2 * ini_file->current_section->properties_capacity, INITIAL_PROPERTIES_CAPACITY);
+        struct Key_Value_Pair *const new_properties = realloc(ini_file->current_section->properties, new_cap * sizeof(struct Key_Value_Pair));
+        if (new_properties == NULL) {
+            return ini_allocation;
+        }
+        ini_file->current_section->properties = new_properties;
+        ini_file->current_section->properties_capacity = new_cap;
+    }
+    copied_key = copy_sized_string(ini_file, key, key_len);
+    if (copied_key == NULL) {
+        return ini_allocation;
+    }
+    copied_value = copy_sized_string(ini_file, value, value_len);
+    if (copied_value == NULL) {
+#ifndef USE_CUSTOM_STRING_ALLOCATOR
+        free(copied_key);
+#endif
+        return ini_allocation;
+    }
+    property = &ini_file->current_section->properties[property_index];
+    /* Moves the sections to insert the new section in the middle, keeping the array sorted by names */
+    memmove((property + 1), property, (ini_file->current_section->properties_size - property_index)*sizeof(struct Key_Value_Pair));
+    /* Update the values to the new property */
+    property->key = copied_key;
+    property->value = copied_value;
+    ini_file->current_section->properties_size++;
+    return ini_no_error;
+}
+
+enum Ini_File_Errors ini_file_add_property(struct Ini_File *const ini_file, const char *const key, const char *const value) {
+    if (key == NULL) {
+        return ini_key_not_provided;
+    }
+    if (value == NULL) {
+        return ini_value_not_provided;
+    }
+    return ini_file_add_property_sized(ini_file, key, strlen(key), value, strlen(value));
+}
+
+enum Ini_File_Errors ini_file_save(const struct Ini_File *const ini_file, const char *const filename) {
+    FILE *file;
+    if (ini_file == NULL) {
+        return ini_invalid_parameters;
+    }
+    file = fopen(filename, "wb");
+	if (file == NULL) {
+        return ini_couldnt_open_file;
+    }
+    ini_file_print_to(ini_file, file);
+    fclose(file);
     return ini_no_error;
 }
 

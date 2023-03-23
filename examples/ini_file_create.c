@@ -31,9 +31,9 @@
  */
 
 int main(void) {
-    char filename[MAX_STRING_SIZE], key[MAX_STRING_SIZE], value[MAX_STRING_SIZE];
-    /* The first section is global to the file */
-    char section[MAX_STRING_SIZE] = "global";
+    char filename[MAX_STRING_SIZE];
+    char section[MAX_STRING_SIZE];
+    char key[MAX_STRING_SIZE], value[MAX_STRING_SIZE];
     struct Ini_File *ini_file = ini_file_new();
     /* Instruction on how to use this application */
     printf("Following, type the requested fields of keys, values and section names.\n");

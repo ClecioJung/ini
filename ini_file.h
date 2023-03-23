@@ -37,10 +37,13 @@
  * allowed in key names. However, spaces and the = character can be used when
  * defining values, as long as the characters # and ; are not used. Section names
  * can have spaces, but cannot include the characters ], #, and ;. Nested sections
- * are not currently implemented, and duplicate names are allowed (for now). Quoted
- * strings and escaped characters are not supported in this implementation.
+ * are not implemented. Duplicate section names are allowed and their key value
+ * pairs are inserted under the same section data structure. Duplicate key names
+ * results in error. Quoted strings and escaped characters are not supported in
+ * this implementation.
  * If a key-value pair appears in the INI file before the first section is declared,
- * it will be treated as belonging to the "global" section. This allows properties
+ * it will be treated as belonging to a global section which can be searched by
+ * using NULL or empty strings for the section name field. This allows properties
  * to be defined outside of any specific section and still be easily accessible in
  * the program. 
  */
@@ -84,10 +87,14 @@ struct Ini_File {
     /* This index points to the next valid location in the buffer to store the string. */
     size_t string_index;
 #endif
+    /* The global section of the INI file. It's name is always empty */
+    struct Ini_Section global_section;
     /* The sections of the ini file are stored in a dynamic array */
     size_t sections_size;
     size_t sections_capacity;
     struct Ini_Section *sections;
+    /* Index of the section in which the properties should be inserted */
+    struct Ini_Section *current_section;
 };
 
 enum Ini_File_Errors {
@@ -95,11 +102,12 @@ enum Ini_File_Errors {
     ini_allocation,
     ini_invalid_parameters,
     ini_couldnt_open_file,
-    ini_expected_clocing_bracket,
+    ini_expected_closing_bracket,
     ini_expected_equals,
     ini_section_not_provided,
     ini_key_not_provided,
     ini_value_not_provided,
+    ini_repeated_key,
     ini_no_such_section,
     ini_no_such_property,
     ini_not_integer,
@@ -129,22 +137,22 @@ void ini_file_info(const struct Ini_File *const ini_file);
 /* Remember to free the memory allocated for the returned ini file structure */
 struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callback callback);
 
+/* These functions use binary search algorithm to find the requested section and properties.
+ * They return ini_no_error = 0 if everything worked correctly.
+ * The found value will be stored at the memory address provided by the caller.
+ * Note that the function may modify the value stored at the address provided even if the section/property isn't found. */
+enum Ini_File_Errors ini_file_find_section(struct Ini_File *const ini_file, const char *const section, struct Ini_Section **ini_section);
+enum Ini_File_Errors ini_file_find_property(struct Ini_File *const ini_file, const char *const section, const char *const key, char **value);
+enum Ini_File_Errors ini_file_find_integer(struct Ini_File *const ini_file, const char *const section, const char *const key, long *integer);
+enum Ini_File_Errors ini_file_find_unsigned(struct Ini_File *const ini_file, const char *const section, const char *const key, unsigned long *uint);
+enum Ini_File_Errors ini_file_find_float(struct Ini_File *const ini_file, const char *const section, const char *const key, double *real);
+
 /* These functions returns ini_no_error = 0 if everything worked correctly */
 enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file, const char *const name, const size_t name_len);
 enum Ini_File_Errors ini_file_add_section(struct Ini_File *const ini_file, const char *const name);
 enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file, const char *const key, const size_t key_len, const char *const value, const size_t value_len);
 enum Ini_File_Errors ini_file_add_property(struct Ini_File *const ini_file, const char *const key, const char *const value);
 enum Ini_File_Errors ini_file_save(const struct Ini_File *const ini_file, const char *const filename);
-
-/* These functions use sequential search algorithm to find the requested section and properties.
- * They return ini_no_error = 0 if everything worked correctly.
- * The found value will be stores at the memory address provided by the caller.
- * If no value is found, the function will not modify the value stored at the address provided. */
-enum Ini_File_Errors ini_file_find_section(struct Ini_File *const ini_file, const char *const section, struct Ini_Section **ini_section);
-enum Ini_File_Errors ini_file_find_property(struct Ini_File *const ini_file, const char *const section, const char *const key, char **value);
-enum Ini_File_Errors ini_file_find_integer(struct Ini_File *const ini_file, const char *const section, const char *const key, long *integer);
-enum Ini_File_Errors ini_file_find_unsigned(struct Ini_File *const ini_file, const char *const section, const char *const key, unsigned long *uint);
-enum Ini_File_Errors ini_file_find_float(struct Ini_File *const ini_file, const char *const section, const char *const key, double *real);
 
 #endif  /* __INI_FILE */
 

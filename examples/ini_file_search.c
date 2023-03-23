@@ -32,6 +32,13 @@ int main(const int argc, const char **const argv) {
         ini_file_print_to(ini_file, stdout);
         break;
     case 3:
+        /* First, try to find this name as a property in the global section */
+        error = ini_file_find_property(ini_file, NULL, argv[2], &value);
+        if (error == ini_no_error) {
+            puts(value);
+            break;
+        }
+        /* If it wasn't a property, try to fnd it as a section */
         error = ini_file_find_section(ini_file, argv[2], &ini_section);
         if (error != ini_no_error) {
             fprintf(stderr, "%s\n", ini_file_error_to_string(error));
