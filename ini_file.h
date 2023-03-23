@@ -62,10 +62,6 @@
 struct String_Buffer {
     char buffer[4096];
     struct String_Buffer *next;
-    /* This index points to the next valid location to store the string.
-     * If the buffer is full, the index will equal -1. In this case we shall
-     * use one of the next buffers. */
-    int index;
 };
 #endif
 
@@ -85,6 +81,8 @@ struct Ini_Section {
 struct Ini_File {
 #ifdef USE_CUSTOM_STRING_ALLOCATOR
     struct String_Buffer *strings;
+    /* This index points to the next valid location in the buffer to store the string. */
+    size_t string_index;
 #endif
     /* The sections of the ini file are stored in a dynamic array */
     size_t sections_size;
@@ -125,6 +123,8 @@ void ini_file_free(struct Ini_File *const ini_file);
 void ini_section_print_to(const struct Ini_Section *const ini_section, FILE *const sink);
 void ini_file_print_to(const struct Ini_File *const ini_file, FILE *const sink);
 char *ini_file_error_to_string(const enum Ini_File_Errors error);
+/* This function is usefull for debug purposes */
+void ini_file_info(const struct Ini_File *const ini_file);
 
 /* Remember to free the memory allocated for the returned ini file structure */
 struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callback callback);

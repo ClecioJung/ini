@@ -5,7 +5,6 @@
  */
 
 #include <ctype.h>
-#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,8 +14,8 @@
 /* Most systems do not allow for a line greather than 4 kbytes */
 #define MAX_LINE_SIZE 4096
 
-#define INITIAL_NUMBER_OF_SECTIONS 32
-#define INITIAL_NUMBER_OF_PROPERTIES 32
+#define INITIAL_SECTIONS_CAPACITY 32
+#define INITIAL_PROPERTIES_CAPACITY 32
 
 #ifdef USE_CUSTOM_STRING_ALLOCATOR
 static void string_buffer_free(struct String_Buffer *buffer) {
@@ -61,31 +60,16 @@ char *get_content_from_file(const char *const filename) {
 
 struct Ini_File *ini_file_new(void) {
     struct Ini_File *ini_file = malloc(sizeof(struct Ini_File));
-    if (ini_file != NULL) {
-#ifdef USE_CUSTOM_STRING_ALLOCATOR
-        ini_file->strings = malloc(sizeof(struct String_Buffer));
-        if (ini_file->strings == NULL) {
-            free(ini_file);
-            return NULL;
-        }
-        ini_file->strings->index = 0;
-        ini_file->strings->next = NULL;
-#endif
-        ini_file->sections_size = 0;
-        ini_file->sections_capacity = INITIAL_NUMBER_OF_SECTIONS;
-        ini_file->sections = malloc(ini_file->sections_capacity * sizeof(struct Ini_Section));
-        if (ini_file->sections == NULL) {
-#ifdef USE_CUSTOM_STRING_ALLOCATOR
-            free(ini_file->strings);
-#endif
-            free(ini_file);
-            return NULL;
-        }
-        /* The first section is global to the file */
-        if (ini_file_add_section(ini_file, "global") != 0) {
-            ini_file_free(ini_file);
-            return NULL;
-        }
+    if (ini_file == NULL) {
+        return NULL;
+    }
+    memset(ini_file, 0, sizeof(struct Ini_File));
+    /* TODO: If we sort the sections, we shall think in another way to store
+     * and retrieve the data of this global section */
+    /* The first section is global to the file */
+    if (ini_file_add_section(ini_file, "global") != 0) {
+        ini_file_free(ini_file);
+        return NULL;
     }
     return ini_file;
 }
@@ -108,12 +92,8 @@ void ini_file_free(struct Ini_File *const ini_file) {
         }
 #endif
         free(ini_file->sections[i].properties);
-        ini_file->sections[i].properties_capacity = 0;
-        ini_file->sections[i].properties_size = 0;
     }
     free(ini_file->sections);
-    ini_file->sections_capacity = 0;
-    ini_file->sections_size = 0;
     free(ini_file);
 }
 
@@ -170,6 +150,48 @@ char *ini_file_error_to_string(const enum Ini_File_Errors error) {
     return error_messages[error];
 }
 
+/* This function is usefull for debug purposes */
+void ini_file_info(const struct Ini_File *const ini_file) {
+    size_t siz, i, allocs = 1, properties = 0;
+    if (ini_file == NULL) {
+        return;
+    }
+    siz = sizeof(*ini_file) + sizeof(*ini_file->sections) * ini_file->sections_capacity;
+    if (ini_file->sections_size > 0) {
+        allocs++;
+    }
+#ifdef USE_CUSTOM_STRING_ALLOCATOR
+    {
+        struct String_Buffer *strings = ini_file->strings;
+        while (strings != NULL) {
+            siz += sizeof(*strings);
+            strings = strings->next;
+            allocs++;
+        }
+    }
+#endif
+    for (i = 0; i < ini_file->sections_size; i++) {
+#ifndef USE_CUSTOM_STRING_ALLOCATOR
+        size_t j;
+        for (j = 0; j < ini_file->sections[i].properties_size; j++) {
+            siz += 1 + strlen(ini_file->sections[i].properties[j].key);
+            siz += 1 + strlen(ini_file->sections[i].properties[j].value);
+        }
+        siz += 1 + strlen(ini_file->sections[i].name);
+        allocs += 1 + 2 * ini_file->sections[i].properties_size;
+#endif
+        properties += ini_file->sections[i].properties_size;
+        siz += sizeof(*ini_file->sections[i].properties) * ini_file->sections[i].properties_capacity;
+        if (ini_file->sections[i].properties_size > 0) {
+            allocs++;
+        }
+    }
+    printf("Sections:         %lu\n", ini_file->sections_size);
+    printf("Properties:       %lu\n", properties);
+    printf("Allocated chunks: %lu\n", allocs);
+    printf("Memory used:      %lu bytes\n", siz);
+}
+
 static void advance_white_spaces(char **const str) {
     while (isspace((unsigned char) **str)) {
         (*str)++;
@@ -182,45 +204,36 @@ static void advance_string_until(char **const str, const char *const chars) {
     }
 }
 
-#ifdef USE_CUSTOM_STRING_ALLOCATOR
-static char *copy_sized_string(struct String_Buffer *strings, const char *const sized_str, const size_t len) {
+static char *copy_sized_string(struct Ini_File *ini_file, const char *const sized_str, const size_t len) {
     char *str;
-    if (strings == NULL) {
+#ifdef USE_CUSTOM_STRING_ALLOCATOR
+    if (ini_file == NULL) {
         return NULL;
     }
-    while ((strings->index < 0) && (strings->next != NULL)) {
-        strings = strings->next;
-    }
-    if (strings->index < 0) {
-        return NULL;
-    }
-    if (((size_t)strings->index + len + 1) > sizeof(strings->buffer)) {
-        strings->index = -1;
-        strings->next = malloc(sizeof(struct String_Buffer));
-        if (strings->next == NULL) {
+    if ((ini_file->strings == NULL) || ((ini_file->string_index + len + 1) > sizeof(ini_file->strings->buffer))) {
+        /* Insert new buffer at the beginning */
+        struct String_Buffer *new_strings = malloc(sizeof(struct String_Buffer));
+        if (new_strings == NULL) {
             return NULL;
         }
-        strings = strings->next;
-        strings->index = 0;
-        strings->next = NULL;
+        new_strings->next = ini_file->strings;
+        ini_file->strings = new_strings;
+        ini_file->string_index = 0;
     }
     /* Allocates the memory to store the string */
-    str = &strings->buffer[strings->index];
-    strings->index += (int)len + 1;
+    str = &ini_file->strings->buffer[ini_file->string_index];
+    ini_file->string_index += len + 1;
+#else
+    (void)ini_file;
+    str = malloc(len + 1);
+    if (str == NULL) {
+        return NULL;
+    }
+#endif
     strncpy(str, sized_str, len);
     str[len] = '\0';
     return str;
 }
-#else
-static char *copy_sized_string(const char *const sized_str, const size_t len) {
-    char *str = malloc(len + 1);
-    if (str != NULL) {
-        strncpy(str, sized_str, len);
-        str[len] = '\0';
-    }
-    return str;
-}
-#endif
 
 static int ini_file_parse_handle_error(Ini_File_Error_Callback callback, const char *const filename, const size_t line_number, const size_t column, const char *const line, const enum Ini_File_Errors error) {
     /* This function is called when we found an error in the parsing.
@@ -333,16 +346,21 @@ ini_file_parse_error:
     return NULL;
 }
 
+static size_t max_size(const size_t a, const size_t b) {
+    return ((a > b) ? a : b);
+}
+
 enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file, const char *const name, const size_t name_len) {
-    struct Ini_Section *section;
+    struct Ini_Section *ini_section;
     if (ini_file == NULL) {
         return ini_invalid_parameters;
     }
     if ((name == NULL) || (name_len == 0)) {
         return ini_section_not_provided;
     }
+    /* Check if we need expand our array of sections */
     if ((ini_file->sections_size + 1) >= ini_file->sections_capacity) {
-        const size_t new_cap = 2 * ini_file->sections_capacity;
+        const size_t new_cap = max_size(2 * ini_file->sections_capacity, INITIAL_SECTIONS_CAPACITY);
         struct Ini_Section *const new_sections = realloc(ini_file->sections, new_cap * sizeof(struct Ini_Section));
         if (new_sections == NULL) {
             return ini_allocation;
@@ -350,20 +368,11 @@ enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file,
         ini_file->sections = new_sections;
         ini_file->sections_capacity = new_cap;
     }
-    section = &ini_file->sections[ini_file->sections_size];
-#ifdef USE_CUSTOM_STRING_ALLOCATOR
-    section->name = copy_sized_string(ini_file->strings, name, name_len);
-#else
-    section->name = copy_sized_string(name, name_len);
-#endif
-    if (section->name == NULL) {
-        return ini_allocation;
-    }
-    section->properties_size = 0;
-    section->properties_capacity = INITIAL_NUMBER_OF_PROPERTIES;
-    section->properties = malloc(section->properties_capacity * sizeof(struct Key_Value_Pair));
-    if (section->properties == NULL) {
-        free(section->name);
+    /* Insert a new section at the end of the array */
+    ini_section = &ini_file->sections[ini_file->sections_size];
+    memset(ini_section, 0, sizeof(struct Ini_Section));
+    ini_section->name = copy_sized_string(ini_file, name, name_len);
+    if (ini_section->name == NULL) {
         return ini_allocation;
     }
     ini_file->sections_size++;
@@ -378,7 +387,7 @@ enum Ini_File_Errors ini_file_add_section(struct Ini_File *const ini_file, const
 }
 
 enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file, const char *const key, const size_t key_len, const char *const value, const size_t value_len) {
-    struct Ini_Section *section;
+    struct Ini_Section *ini_section;
     struct Key_Value_Pair *property;
     if (ini_file == NULL) {
         return ini_invalid_parameters;
@@ -393,35 +402,29 @@ enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file
         return ini_allocation;
     }
     /* Insert the new property at the last section */
-    section = &ini_file->sections[ini_file->sections_size - 1];
-    if ((section->properties_size + 1) >= section->properties_capacity) {
-        const size_t new_cap = 2 * section->properties_capacity;
-        struct Key_Value_Pair *const new_properties = realloc(section->properties, new_cap * sizeof(struct Key_Value_Pair));
+    ini_section = &ini_file->sections[ini_file->sections_size - 1];
+    if ((ini_section->properties_size + 1) >= ini_section->properties_capacity) {
+        const size_t new_cap = max_size(2 * ini_section->properties_capacity, INITIAL_PROPERTIES_CAPACITY);
+        struct Key_Value_Pair *const new_properties = realloc(ini_section->properties, new_cap * sizeof(struct Key_Value_Pair));
         if (new_properties == NULL) {
             return ini_allocation;
         }
-        section->properties = new_properties;
-        section->properties_capacity = new_cap;
+        ini_section->properties = new_properties;
+        ini_section->properties_capacity = new_cap;
     }
-    property = &section->properties[section->properties_size];
-#ifdef USE_CUSTOM_STRING_ALLOCATOR
-    property->key = copy_sized_string(ini_file->strings, key, key_len);
-#else
-    property->key = copy_sized_string(key, key_len);
-#endif
+    property = &ini_section->properties[ini_section->properties_size];
+    property->key = copy_sized_string(ini_file, key, key_len);
     if (property->key == NULL) {
         return ini_allocation;
     }
-#ifdef USE_CUSTOM_STRING_ALLOCATOR
-    property->value = copy_sized_string(ini_file->strings, value, value_len);
-#else
-    property->value = copy_sized_string(value, value_len);
-#endif
+    property->value = copy_sized_string(ini_file, value, value_len);
     if (property->value == NULL) {
+#ifndef USE_CUSTOM_STRING_ALLOCATOR
         free(property->key);
+#endif
         return ini_allocation;
     }
-    section->properties_size++;
+    ini_section->properties_size++;
     return ini_no_error;
 }
 

@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "../ini_file.h"
 
@@ -14,22 +15,14 @@
 /* This function reads a string of size MAX_STRING_SIZE from stdin.
  * It returns 0 if no valid string was retrieved. */
  int get_string_from_stdin(const char *const prompt, char *string) {
-    int i, empty = 0;
     fputs(prompt, stdout);
     if (fgets(string, MAX_STRING_SIZE, stdin) == NULL) {
         return 0;
     }
-    /* Replace \n characters for \0 and check if string is empty (only composed of spaces) */
-    for (i = 0; string[i] != '\0'; i++) {
-        if (string[i] == '\n') {
-            string[i] = '\0';
-            break;
-        }
-        if (!isspace(string[i])) {
-            empty = 1;
-        }
-    }
-    return empty;
+    /* Replace space and new line characters by \0 */
+    string[strcspn(string, " \t\r\n")] = '\0';
+    /* Check if string is empty */
+    return (string[0] != '\0');
  }
 
 /*------------------------------------------------------------------------------

@@ -31,6 +31,8 @@ int main(const int argc, const char **const argv) {
     }
     printf("\nThe properties retrieved from the the ini file \"%s\" are:\n\n", argv[1]);
     ini_file_print_to(ini_file, stdout);
+    printf("\nCheck out this information of the INI file data structure:\n");
+    ini_file_info(ini_file);
     ini_file_free(ini_file);
     return EXIT_SUCCESS;
 }
