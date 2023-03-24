@@ -3,12 +3,12 @@
  *------------------------------------------------------------------------------
  */
 
+#include "../ini_file.h"
+
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "../ini_file.h"
 
 #define MAX_STRING_SIZE 1024
 

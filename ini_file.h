@@ -48,6 +48,8 @@
  * the program. 
  */
 
+#include <stdio.h>
+#include <stdlib.h>
 
 /* This is a implementation of a custom string allocator to store the strings found
  * inside the INI. If you don't want to use this approach, just comment the

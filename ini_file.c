@@ -205,18 +205,6 @@ void ini_file_info(const struct Ini_File *const ini_file) {
     printf("Memory used:      %lu bytes\n", siz);
 }
 
-static void advance_white_spaces(char **const str) {
-    while (isspace((unsigned char) **str)) {
-        (*str)++;
-    }
-}
-
-static void advance_string_until(char **const str, const char *const chars) {
-    while (strchr(chars, **str) == NULL) {
-        (*str)++;
-    }
-}
-
 static char *copy_sized_string(struct Ini_File *ini_file, const char *const sized_str, const size_t len) {
     char *str;
 #ifdef USE_CUSTOM_STRING_ALLOCATOR
@@ -248,16 +236,30 @@ static char *copy_sized_string(struct Ini_File *ini_file, const char *const size
     return str;
 }
 
-static int ini_file_parse_handle_error(Ini_File_Error_Callback callback, const char *const filename, const size_t line_number, const size_t column, const char *const line, const enum Ini_File_Errors error) {
-    /* This function is called when we found an error in the parsing.
-     * So, we report it to the user using the callback provided. 
-     * If the callback returns an integer different from zero,
-     * we end the parsing and return NULL. */
-    if (callback != NULL) {
-        return callback(filename, line_number, column, line, error);
+static void advance_white_spaces(char **const str) {
+    while (isspace((unsigned char) **str)) {
+        (*str)++;
     }
-    return 0;
 }
+
+static void advance_string_until(char **const str, const char *const chars) {
+    while (strchr(chars, **str) == NULL) {
+        (*str)++;
+    }
+}
+
+/* This macro is used to simplify the error handling in the parser.
+ * If a callback was provided, the error is reported to the user.
+ * If the callback returns an integer different from zero,
+ * we end the parsing and return NULL. */
+#define ini_file_parse_handle_error(error) \
+    do { \
+        if (callback != NULL) { \
+            if (callback(filename, line_number, (size_t)(cursor - line + 1), line, error) != 0) { \
+                goto ini_file_parse_error; \
+            } \
+        } \
+    } while (0)
 
 /* Remember to free the memory allocated for the returned ini file structure */
 struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callback callback) {
@@ -268,13 +270,17 @@ struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callb
     struct Ini_File *ini_file = ini_file_new();
     if (ini_file == NULL) {
         /* This is a critical error, so we don't proceed, even if the callback returns 0 */
-        ini_file_parse_handle_error(callback, filename, 0, 0, NULL, ini_allocation);
+        if (callback != NULL) {
+            callback(filename, 0, 0, NULL, ini_allocation);
+        }
         return NULL;
     }
     file = fopen(filename, "rb");
 	if (file == NULL) {
         /* This is a critical error, so we don't proceed, even if the callback returns 0 */
-        ini_file_parse_handle_error(callback, filename, 0, 0, NULL, ini_couldnt_open_file);
+        if (callback != NULL) {
+            callback(filename, 0, 0, NULL, ini_couldnt_open_file);
+        }
         ini_file_free(ini_file);
         return NULL;
     }
@@ -296,9 +302,7 @@ struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callb
             name = cursor;
             advance_string_until(&cursor, "]#;\r\n");
             if (*cursor != ']') {
-                if (ini_file_parse_handle_error(callback, filename, line_number, (size_t)(cursor-line+1), line, ini_expected_closing_bracket) != 0) {
-                    goto ini_file_parse_error;
-                }
+                ini_file_parse_handle_error(ini_expected_closing_bracket);
                 continue;
             }
             /* Compute length of the name string and remove trailing whitespaces */
@@ -308,9 +312,7 @@ struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callb
             }
             error = ini_file_add_section_sized(ini_file, name, name_len);
             if (error != ini_no_error) {
-                if (ini_file_parse_handle_error(callback, filename, line_number, (size_t)(cursor-line+1), line, error) != 0) {
-                    goto ini_file_parse_error;
-                }
+                ini_file_parse_handle_error(error);
             }
             /* We just ignore the possible characters after the end of the declaration of the section */
             continue;
@@ -320,16 +322,12 @@ struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callb
         /* Compute length of the string name */
         key_len = (size_t)(cursor - key);
         if (key_len == 0) {
-            if (ini_file_parse_handle_error(callback, filename, line_number, (size_t)(cursor-line+1), line, ini_key_not_provided) != 0) {
-                goto ini_file_parse_error;
-            }
+            ini_file_parse_handle_error(ini_key_not_provided);
             continue;
         }
         advance_white_spaces(&cursor);
         if (*cursor != '=') {
-            if (ini_file_parse_handle_error(callback, filename, line_number, (size_t)(cursor-line+1), line, ini_expected_equals) != 0) {
-                goto ini_file_parse_error;
-            }
+            ini_file_parse_handle_error(ini_expected_equals);
             continue;
         }
         cursor++;
@@ -343,9 +341,7 @@ struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callb
         }
         error = ini_file_add_property_sized(ini_file, key, key_len, value, value_len);
         if (error != ini_no_error) {
-            if (ini_file_parse_handle_error(callback, filename, line_number, (size_t)(cursor-line+1), line, error) != 0) {
-                goto ini_file_parse_error;
-            }
+            ini_file_parse_handle_error(error);
         }
     }
     fclose(file);
@@ -368,46 +364,36 @@ static int compare_sized_str_to_cstr(const char* str1, const char* str2, size_t 
     return comp;
 }
 
-/* Binary search in the array of sections */
+/* Binary search algorithm */
+#define binary_search(array, elem, str, len) \
+    do { \
+        size_t low = 0; \
+        size_t high = array ## _size - 1; \
+        while ((low <= high) && (high < array ## _size)) { \
+            int comp; \
+            *index = (low + high) / 2; \
+            comp = compare_sized_str_to_cstr(str, array[*index].elem, len); \
+            if (comp < 0) { \
+                high = *index - 1; \
+            } else if (comp > 0) { \
+                low = *index + 1; \
+            } else { \
+                return ini_no_error; \
+            } \
+        } \
+        /* Didn't found the requested element, so return the correct index \
+         * to insert the new element, keeping the order of the array */ \
+        *index = low; \
+    } while (0)
+
 static enum Ini_File_Errors ini_file_find_section_index(struct Ini_File *const ini_file, const char *const section, const size_t section_len, size_t *const index) {
-    size_t low = 0;
-    size_t high = ini_file->sections_size - 1;
-    while ((low <= high) && (high < ini_file->sections_size)) {
-        int comp;
-        *index = (low + high) / 2;
-        comp = compare_sized_str_to_cstr(section, ini_file->sections[*index].name, section_len);
-        if (comp < 0) {
-            high = *index - 1;
-        } else if (comp > 0) {
-            low = *index + 1;
-        } else {
-            return ini_no_error;
-        }
-    }
-    /* Didn't found the requested section, so return the correct index to insert the new element, keeping the order of the array */
-    *index = low;
+    binary_search(ini_file->sections, name, section, section_len);
     return ini_no_such_section;
 }
 
-/* Binary search in the array of properties */
 static enum Ini_File_Errors ini_file_find_key_index(struct Ini_Section *const ini_section, const char *const key, const size_t key_len, size_t *const index) {
-    size_t low = 0;
-    size_t high = ini_section->properties_size - 1;
-    while ((low <= high) && (high < ini_section->properties_size)) {
-        int comp;
-        *index = (low + high) / 2;
-        comp = compare_sized_str_to_cstr(key, ini_section->properties[*index].key, key_len);
-        if (comp < 0) {
-            high = *index - 1;
-        } else if (comp > 0) {
-            low = *index + 1;
-        } else {
-            return ini_no_error;
-        }
-    }
-    /* Didn't found the requested key, so return the correct index to insert the new element, keeping the order of the array */
-    *index = low;
-    return ini_no_such_section;
+    binary_search(ini_section->properties, key, key, key_len);
+    return ini_no_such_property;
 }
 
 enum Ini_File_Errors ini_file_find_section(struct Ini_File *const ini_file, const char *const section, struct Ini_Section **ini_section) {
@@ -509,6 +495,19 @@ static size_t max_size(const size_t a, const size_t b) {
     return ((a > b) ? a : b);
 }
 
+#define array_resize(array, default_cap) \
+    do { \
+        if ((array ## _size + 1) >= array ## _capacity) { \
+            const size_t new_cap = max_size(2 * array ## _capacity, default_cap); \
+            void *const new_array = realloc(array, new_cap * sizeof(*array)); \
+            if (new_array == NULL) { \
+                return ini_allocation; \
+            } \
+            array = new_array; \
+            array ## _capacity = new_cap; \
+        } \
+    } while (0)
+
 enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file, const char *const name, const size_t name_len) {
     size_t section_index;
     char *copied_name;
@@ -523,16 +522,8 @@ enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file,
         ini_file->current_section = &ini_file->sections[section_index];
         return ini_no_error;
     }
-    /* Check if we need expand our array of sections */
-    if ((ini_file->sections_size + 1) >= ini_file->sections_capacity) {
-        const size_t new_cap = max_size(2 * ini_file->sections_capacity, INITIAL_SECTIONS_CAPACITY);
-        struct Ini_Section *const new_sections = realloc(ini_file->sections, new_cap * sizeof(struct Ini_Section));
-        if (new_sections == NULL) {
-            return ini_allocation;
-        }
-        ini_file->sections = new_sections;
-        ini_file->sections_capacity = new_cap;
-    }
+    /* Check if we need expand the array of sections */
+    array_resize(ini_file->sections, INITIAL_SECTIONS_CAPACITY);
     /* Allocates memory to store the section name */
     copied_name = copy_sized_string(ini_file, name, name_len);
     if (copied_name == NULL) {
@@ -572,15 +563,8 @@ enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file
         /* There is already a property with that key name, which is not allowed */
         return ini_repeated_key;
     }
-    if ((ini_file->current_section->properties_size + 1) >= ini_file->current_section->properties_capacity) {
-        const size_t new_cap = max_size(2 * ini_file->current_section->properties_capacity, INITIAL_PROPERTIES_CAPACITY);
-        struct Key_Value_Pair *const new_properties = realloc(ini_file->current_section->properties, new_cap * sizeof(struct Key_Value_Pair));
-        if (new_properties == NULL) {
-            return ini_allocation;
-        }
-        ini_file->current_section->properties = new_properties;
-        ini_file->current_section->properties_capacity = new_cap;
-    }
+    /* Check if we need expand the array of properties */
+    array_resize(ini_file->current_section->properties, INITIAL_PROPERTIES_CAPACITY);
     copied_key = copy_sized_string(ini_file, key, key_len);
     if (copied_key == NULL) {
         return ini_allocation;
@@ -593,7 +577,7 @@ enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file
         return ini_allocation;
     }
     property = &ini_file->current_section->properties[property_index];
-    /* Moves the sections to insert the new section in the middle, keeping the array sorted by names */
+    /* Moves the properties to insert the new property in the middle, keeping the array sorted by keys */
     memmove((property + 1), property, (ini_file->current_section->properties_size - property_index)*sizeof(struct Key_Value_Pair));
     /* Update the values to the new property */
     property->key = copied_key;
