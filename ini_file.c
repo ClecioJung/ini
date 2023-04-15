@@ -211,6 +211,10 @@ static char *copy_sized_string(struct Ini_File *ini_file, const char *const size
     if (ini_file == NULL) {
         return NULL;
     }
+    /* Checks if the string fits into the maximum buffer size */
+    if ((len + 1) >= STRING_ALLOCATOR_BUFFER_SIZE) {
+        return NULL;
+    }
     if ((ini_file->strings == NULL) || ((ini_file->string_index + len + 1) > sizeof(ini_file->strings->buffer))) {
         /* Insert new buffer at the beginning */
         struct String_Buffer *new_strings = malloc(sizeof(struct String_Buffer));

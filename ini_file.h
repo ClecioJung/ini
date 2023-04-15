@@ -64,8 +64,11 @@
  */
 #define USE_CUSTOM_STRING_ALLOCATOR
 #ifdef USE_CUSTOM_STRING_ALLOCATOR
+
+#define STRING_ALLOCATOR_BUFFER_SIZE 4096
+
 struct String_Buffer {
-    char buffer[4096];
+    char buffer[STRING_ALLOCATOR_BUFFER_SIZE];
     struct String_Buffer *next;
 };
 #endif
