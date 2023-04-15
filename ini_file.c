@@ -417,10 +417,25 @@ enum Ini_File_Errors ini_file_find_section(struct Ini_File *const ini_file, cons
     return error;
 }
 
+enum Ini_File_Errors ini_section_find_property(struct Ini_Section *const ini_section, const char *const key, char **value)  {
+    enum Ini_File_Errors error;
+    size_t property_index;
+    if ((ini_section == NULL) || (value == NULL)) {
+        return ini_invalid_parameters;
+    }
+    if (key[0] == '\0') {
+        return ini_invalid_parameters;
+    }
+    error = ini_file_find_key_index(ini_section, key, strlen(key), &property_index);
+    if (error == ini_no_error) {
+        *value = ini_section->properties[property_index].value;
+    }
+    return error;
+}
+
 enum Ini_File_Errors ini_file_find_property(struct Ini_File *const ini_file, const char *const section, const char *const key, char **value) {
     enum Ini_File_Errors error;
     struct Ini_Section *ini_section;
-    size_t property_index;
     if ((ini_file == NULL) || (key == NULL) || (value == NULL)) {
         return ini_invalid_parameters;
     }
@@ -431,16 +446,34 @@ enum Ini_File_Errors ini_file_find_property(struct Ini_File *const ini_file, con
     if (error != ini_no_error) {
         return error;
     }
-    error = ini_file_find_key_index(ini_section, key, strlen(key), &property_index);
-    if (error == ini_no_error) {
-        *value = ini_section->properties[property_index].value;
+    return ini_section_find_property(ini_section, key, value);
+}
+
+static enum Ini_File_Errors convert_to_integer(const char *const value, long *const integer) {
+    char *end;
+    long i_value = strtol(value, &end, 10);
+    if (*end != '\0') {
+        return ini_not_integer;
     }
-    return error;
+    *integer = i_value;
+    return ini_no_error;
+}
+
+enum Ini_File_Errors ini_section_find_integer(struct Ini_Section *const ini_section, const char *const key, long *integer) {
+    char *value;
+    enum Ini_File_Errors error;
+    if (integer == NULL) {
+        return ini_invalid_parameters;
+    }
+    error = ini_section_find_property(ini_section, key, &value);
+    if (error != ini_no_error) {
+        return error;
+    }
+    return convert_to_integer(value, integer);
 }
 
 enum Ini_File_Errors ini_file_find_integer(struct Ini_File *const ini_file, const char *const section, const char *const key, long *integer) {
-    char *value, *end;
-    long i_value;
+    char *value;
     enum Ini_File_Errors error;
     if (integer == NULL) {
         return ini_invalid_parameters;
@@ -449,17 +482,34 @@ enum Ini_File_Errors ini_file_find_integer(struct Ini_File *const ini_file, cons
     if (error != ini_no_error) {
         return error;
     }
-    i_value = strtol(value, &end, 10);
+    return convert_to_integer(value, integer);
+}
+
+static enum Ini_File_Errors convert_to_unsigned(const char *const value, unsigned long *const uint) {
+    char *end;
+    unsigned long ui_value = strtoul(value, &end, 10);
     if (*end != '\0') {
-        return ini_not_integer;
+        return ini_not_unsigned;
     }
-    *integer = i_value;
+    *uint = ui_value;
     return ini_no_error;
 }
 
+enum Ini_File_Errors ini_section_find_unsigned(struct Ini_Section *const ini_section, const char *const key, unsigned long *uint) {
+    char *value;
+    enum Ini_File_Errors error;
+    if (uint == NULL) {
+        return ini_invalid_parameters;
+    }
+    error = ini_section_find_property(ini_section, key, &value);
+    if (error != ini_no_error) {
+        return error;
+    }
+    return convert_to_unsigned(value, uint);
+}
+
 enum Ini_File_Errors ini_file_find_unsigned(struct Ini_File *const ini_file, const char *const section, const char *const key, unsigned long *uint) {
-    char *value, *end;
-    unsigned long ui_value;
+    char *value;
     enum Ini_File_Errors error;
     if (uint == NULL) {
         return ini_invalid_parameters;
@@ -468,17 +518,34 @@ enum Ini_File_Errors ini_file_find_unsigned(struct Ini_File *const ini_file, con
     if (error != ini_no_error) {
         return error;
     }
-    ui_value = strtoul(value, &end, 10);
+    return convert_to_unsigned(value, uint);
+}
+
+static enum Ini_File_Errors convert_to_double(const char *const value, double *const real) {
+    char *end;
+    double d_value = strtod(value, &end);
     if (*end != '\0') {
-        return ini_not_unsigned;
+        return ini_not_double;
     }
-    *uint = ui_value;
+    *real = d_value;
     return ini_no_error;
 }
 
-enum Ini_File_Errors ini_file_find_float(struct Ini_File *const ini_file, const char *const section, const char *const key, double *real) {
-    char *value, *end;
-    double d_value;
+enum Ini_File_Errors ini_section_find_double(struct Ini_Section *const ini_section, const char *const key, double *real)  {
+    char *value;
+    enum Ini_File_Errors error;
+    if (real == NULL) {
+        return ini_invalid_parameters;
+    }
+    error = ini_section_find_property(ini_section, key, &value);
+    if (error != ini_no_error) {
+        return error;
+    }
+    return convert_to_double(value, real);
+}
+
+enum Ini_File_Errors ini_file_find_double(struct Ini_File *const ini_file, const char *const section, const char *const key, double *real) {
+    char *value;
     enum Ini_File_Errors error;
     if (real == NULL) {
         return ini_invalid_parameters;
@@ -487,12 +554,7 @@ enum Ini_File_Errors ini_file_find_float(struct Ini_File *const ini_file, const 
     if (error != ini_no_error) {
         return error;
     }
-    d_value = strtod(value, &end);
-    if (*end != '\0') {
-        return ini_not_float;
-    }
-    *real = d_value;
-    return ini_no_error;
+    return convert_to_double(value, real);
 }
 
 static size_t max_size(const size_t a, const size_t b) {

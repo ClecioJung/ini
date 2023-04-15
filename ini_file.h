@@ -117,7 +117,7 @@ enum Ini_File_Errors {
     ini_no_such_property,
     ini_not_integer,
     ini_not_unsigned,
-    ini_not_float,
+    ini_not_double,
 
     NUMBER_OF_INI_FILE_ERRORS
 };
@@ -150,7 +150,11 @@ enum Ini_File_Errors ini_file_find_section(struct Ini_File *const ini_file, cons
 enum Ini_File_Errors ini_file_find_property(struct Ini_File *const ini_file, const char *const section, const char *const key, char **value);
 enum Ini_File_Errors ini_file_find_integer(struct Ini_File *const ini_file, const char *const section, const char *const key, long *integer);
 enum Ini_File_Errors ini_file_find_unsigned(struct Ini_File *const ini_file, const char *const section, const char *const key, unsigned long *uint);
-enum Ini_File_Errors ini_file_find_float(struct Ini_File *const ini_file, const char *const section, const char *const key, double *real);
+enum Ini_File_Errors ini_file_find_double(struct Ini_File *const ini_file, const char *const section, const char *const key, double *real);
+enum Ini_File_Errors ini_section_find_property(struct Ini_Section *const ini_section, const char *const key, char **value);
+enum Ini_File_Errors ini_section_find_integer(struct Ini_Section *const ini_section, const char *const key, long *integer);
+enum Ini_File_Errors ini_section_find_unsigned(struct Ini_Section *const ini_section, const char *const key, unsigned long *uint);
+enum Ini_File_Errors ini_section_find_double(struct Ini_Section *const ini_section, const char *const key, double *real);
 
 /* These functions returns ini_no_error = 0 if everything worked correctly */
 enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file, const char *const name, const size_t name_len);

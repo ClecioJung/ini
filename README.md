@@ -72,7 +72,7 @@ int main(const int argc, const char **const argv) {
     printf("\nThe specified key equals to: %s\n", value);
 
     /* You can search for a property and convert it directly to a number */
-    if (ini_file_find_float(ini_file, "section", "key", &number) != ini_no_error) {
+    if (ini_file_find_double(ini_file, "section", "key", &number) != ini_no_error) {
         fprintf(stderr, "\nIt was not possible to find the specified key!\n");
     }
     printf("\nThe specified key equals to: %g\n", number);
