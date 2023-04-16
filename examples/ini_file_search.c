@@ -14,7 +14,7 @@
  */
 
 int main(const int argc, const char **const argv) {
-    enum Ini_File_Errors error;
+    enum Ini_File_Error error;
     struct Ini_File *ini_file;
     struct Ini_Section *ini_section;
     char *value;

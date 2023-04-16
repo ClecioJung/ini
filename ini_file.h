@@ -73,20 +73,20 @@ struct String_Buffer {
 };
 #endif
 
-struct Key_Value_Pair {
+typedef struct Key_Value_Pair {
     char *key;
     char *value;
-};
+} Key_Value_Pair;
 
-struct Ini_Section {
+typedef struct Ini_Section {
     char *name;
     /* The properties of the section are stored in a dynamic array */
     size_t properties_size;
     size_t properties_capacity;
-    struct Key_Value_Pair *properties;
-};
+    Key_Value_Pair *properties;
+} Ini_Section;
 
-struct Ini_File {
+typedef struct Ini_File {
 #ifdef USE_CUSTOM_STRING_ALLOCATOR
     struct String_Buffer *strings;
     /* This index points to the next valid location in the buffer to store the string. */
@@ -97,12 +97,12 @@ struct Ini_File {
     /* The sections of the ini file are stored in a dynamic array */
     size_t sections_size;
     size_t sections_capacity;
-    struct Ini_Section *sections;
+    Ini_Section *sections;
     /* Index of the section in which the properties should be inserted */
-    struct Ini_Section *current_section;
-};
+    Ini_Section *current_section;
+} Ini_File;
 
-enum Ini_File_Errors {
+typedef enum Ini_File_Error {
     ini_no_error = 0,
     ini_allocation,
     ini_invalid_parameters,
@@ -120,48 +120,48 @@ enum Ini_File_Errors {
     ini_not_double,
 
     NUMBER_OF_INI_FILE_ERRORS
-};
+} Ini_File_Error;
 
 /* Callback used to handle errors and warnings in the parsing of INI files (function ini_file_parse).
  * In case of an error, this callback is called, and if it returns an integer different from zero,
  * we end the parsing and return NULL. */
-typedef int (*Ini_File_Error_Callback)(const char *const filename, const size_t line_number, const size_t column, const char *const line, const enum Ini_File_Errors error);
+typedef int (*Ini_File_Error_Callback)(const char *const filename, size_t line_number, size_t column, char *line, enum Ini_File_Error error);
 
 size_t get_file_size(FILE *const file);
 /* Remember to free the memory allocated for the returned string */
 char *get_content_from_file(const char *const filename);
 
-struct Ini_File *ini_file_new(void);
-void ini_file_free(struct Ini_File *const ini_file);
-void ini_section_print_to(const struct Ini_Section *const ini_section, FILE *const sink);
-void ini_file_print_to(const struct Ini_File *const ini_file, FILE *const sink);
-char *ini_file_error_to_string(const enum Ini_File_Errors error);
+Ini_File *ini_file_new(void);
+void ini_file_free(Ini_File *const ini_file);
+void ini_section_print_to(const Ini_Section *const ini_section, FILE *const sink);
+void ini_file_print_to(const Ini_File *const ini_file, FILE *const sink);
+char *ini_file_error_to_string(const Ini_File_Error error);
 /* This function is usefull for debug purposes */
-void ini_file_info(const struct Ini_File *const ini_file);
+void ini_file_info(const Ini_File *const ini_file);
 
 /* Remember to free the memory allocated for the returned ini file structure */
-struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callback callback);
+Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callback callback);
 
 /* These functions use binary search algorithm to find the requested section and properties.
  * They return ini_no_error = 0 if everything worked correctly.
  * The found value will be stored at the memory address provided by the caller.
  * Note that the function may modify the value stored at the address provided even if the section/property isn't found. */
-enum Ini_File_Errors ini_file_find_section(struct Ini_File *const ini_file, const char *const section, struct Ini_Section **ini_section);
-enum Ini_File_Errors ini_file_find_property(struct Ini_File *const ini_file, const char *const section, const char *const key, char **value);
-enum Ini_File_Errors ini_file_find_integer(struct Ini_File *const ini_file, const char *const section, const char *const key, long *integer);
-enum Ini_File_Errors ini_file_find_unsigned(struct Ini_File *const ini_file, const char *const section, const char *const key, unsigned long *uint);
-enum Ini_File_Errors ini_file_find_double(struct Ini_File *const ini_file, const char *const section, const char *const key, double *real);
-enum Ini_File_Errors ini_section_find_property(struct Ini_Section *const ini_section, const char *const key, char **value);
-enum Ini_File_Errors ini_section_find_integer(struct Ini_Section *const ini_section, const char *const key, long *integer);
-enum Ini_File_Errors ini_section_find_unsigned(struct Ini_Section *const ini_section, const char *const key, unsigned long *uint);
-enum Ini_File_Errors ini_section_find_double(struct Ini_Section *const ini_section, const char *const key, double *real);
+Ini_File_Error ini_file_find_section(Ini_File *const ini_file, const char *const section, Ini_Section **const ini_section);
+Ini_File_Error ini_file_find_property(Ini_File *const ini_file, const char *const section, const char *const key, char **const value);
+Ini_File_Error ini_file_find_integer(Ini_File *const ini_file, const char *const section, const char *const key, long *const integer);
+Ini_File_Error ini_file_find_unsigned(Ini_File *const ini_file, const char *const section, const char *const key, unsigned long *const uint);
+Ini_File_Error ini_file_find_double(Ini_File *const ini_file, const char *const section, const char *const key, double *const real);
+Ini_File_Error ini_section_find_property(Ini_Section *const ini_section, const char *const key, char **const value);
+Ini_File_Error ini_section_find_integer(Ini_Section *const ini_section, const char *const key, long *const integer);
+Ini_File_Error ini_section_find_unsigned(Ini_Section *const ini_section, const char *const key, unsigned long *const uint);
+Ini_File_Error ini_section_find_double(Ini_Section *const ini_section, const char *const key, double *const real);
 
 /* These functions returns ini_no_error = 0 if everything worked correctly */
-enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file, const char *const name, const size_t name_len);
-enum Ini_File_Errors ini_file_add_section(struct Ini_File *const ini_file, const char *const name);
-enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file, const char *const key, const size_t key_len, const char *const value, const size_t value_len);
-enum Ini_File_Errors ini_file_add_property(struct Ini_File *const ini_file, const char *const key, const char *const value);
-enum Ini_File_Errors ini_file_save(const struct Ini_File *const ini_file, const char *const filename);
+Ini_File_Error ini_file_add_section_sized(Ini_File *const ini_file, const char *const name, const size_t name_len);
+Ini_File_Error ini_file_add_section(Ini_File *const ini_file, const char *const name);
+Ini_File_Error ini_file_add_property_sized(Ini_File *const ini_file, const char *const key, const size_t key_len, const char *const value, const size_t value_len);
+Ini_File_Error ini_file_add_property(Ini_File *const ini_file, const char *const key, const char *const value);
+Ini_File_Error ini_file_save(const Ini_File *const ini_file, const char *const filename);
 
 #endif  /* __INI_FILE */
 

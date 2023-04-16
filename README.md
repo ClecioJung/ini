@@ -30,7 +30,7 @@ This library provides a set of functions for reading and writing INI files. Here
 #include "ini_file.h"
 
 int main(const int argc, const char **const argv) {
-    struct Ini_File *ini_file;
+    Ini_File *ini_file;
     size_t section_index, property_index;
     char *value;
     double number;
@@ -56,10 +56,10 @@ int main(const int argc, const char **const argv) {
 
     /* You can iterate over the sections and keys */
     for (section_index = 0; section_index < ini_file->sections_size; section_index++) {
-        struct Ini_Section *section = &ini_file->sections[section_index];
+        Ini_Section *section = &ini_file->sections[section_index];
         printf("[%s]\n", section->name);
         for (property_index = 0; property_index < section->properties_size; property_index++) {
-            struct Key_Value_Pair *property = &section->properties[property_index];
+            Key_Value_Pair *property = &section->properties[property_index];
             printf("%s = %s\n", property->key, property->value);
         }
         printf("\n");

@@ -124,7 +124,7 @@ void ini_file_print_to(const struct Ini_File *const ini_file, FILE *const sink) 
     }
 }
 
-char *ini_file_error_to_string(const enum Ini_File_Errors error) {
+char *ini_file_error_to_string(const Ini_File_Error error) {
     static char *const error_messages[] = {
         "No error has occured",
         "Couldn't allocate more memory",
@@ -267,7 +267,7 @@ static void advance_string_until(char **const str, const char *const chars) {
 
 /* Remember to free the memory allocated for the returned ini file structure */
 struct Ini_File *ini_file_parse(const char *const filename, Ini_File_Error_Callback callback) {
-    enum Ini_File_Errors error;
+    Ini_File_Error error;
     char line[MAX_LINE_SIZE];
     size_t line_number;
     FILE *file;
@@ -390,18 +390,18 @@ static int compare_sized_str_to_cstr(const char* str1, const char* str2, size_t 
         *index = low; \
     } while (0)
 
-static enum Ini_File_Errors ini_file_find_section_index(struct Ini_File *const ini_file, const char *const section, const size_t section_len, size_t *const index) {
+static Ini_File_Error ini_file_find_section_index(struct Ini_File *const ini_file, const char *const section, const size_t section_len, size_t *const index) {
     binary_search(ini_file->sections, name, section, section_len);
     return ini_no_such_section;
 }
 
-static enum Ini_File_Errors ini_file_find_key_index(struct Ini_Section *const ini_section, const char *const key, const size_t key_len, size_t *const index) {
+static Ini_File_Error ini_file_find_key_index(struct Ini_Section *const ini_section, const char *const key, const size_t key_len, size_t *const index) {
     binary_search(ini_section->properties, key, key, key_len);
     return ini_no_such_property;
 }
 
-enum Ini_File_Errors ini_file_find_section(struct Ini_File *const ini_file, const char *const section, struct Ini_Section **ini_section) {
-    enum Ini_File_Errors  error;
+Ini_File_Error ini_file_find_section(struct Ini_File *const ini_file, const char *const section, Ini_Section **const ini_section) {
+    Ini_File_Error  error;
     size_t section_index;
     if ((ini_file == NULL) || (ini_section == NULL)) {
         return ini_invalid_parameters;
@@ -417,8 +417,8 @@ enum Ini_File_Errors ini_file_find_section(struct Ini_File *const ini_file, cons
     return error;
 }
 
-enum Ini_File_Errors ini_section_find_property(struct Ini_Section *const ini_section, const char *const key, char **value)  {
-    enum Ini_File_Errors error;
+Ini_File_Error ini_section_find_property(struct Ini_Section *const ini_section, const char *const key, char **const value)  {
+    Ini_File_Error error;
     size_t property_index;
     if ((ini_section == NULL) || (value == NULL)) {
         return ini_invalid_parameters;
@@ -433,8 +433,8 @@ enum Ini_File_Errors ini_section_find_property(struct Ini_Section *const ini_sec
     return error;
 }
 
-enum Ini_File_Errors ini_file_find_property(struct Ini_File *const ini_file, const char *const section, const char *const key, char **value) {
-    enum Ini_File_Errors error;
+Ini_File_Error ini_file_find_property(struct Ini_File *const ini_file, const char *const section, const char *const key, char **const value) {
+    Ini_File_Error error;
     struct Ini_Section *ini_section;
     if ((ini_file == NULL) || (key == NULL) || (value == NULL)) {
         return ini_invalid_parameters;
@@ -449,7 +449,7 @@ enum Ini_File_Errors ini_file_find_property(struct Ini_File *const ini_file, con
     return ini_section_find_property(ini_section, key, value);
 }
 
-static enum Ini_File_Errors convert_to_integer(const char *const value, long *const integer) {
+static Ini_File_Error convert_to_integer(const char *const value, long *const integer) {
     char *end;
     long i_value = strtol(value, &end, 10);
     if (*end != '\0') {
@@ -459,9 +459,9 @@ static enum Ini_File_Errors convert_to_integer(const char *const value, long *co
     return ini_no_error;
 }
 
-enum Ini_File_Errors ini_section_find_integer(struct Ini_Section *const ini_section, const char *const key, long *integer) {
+Ini_File_Error ini_section_find_integer(struct Ini_Section *const ini_section, const char *const key, long *const integer) {
     char *value;
-    enum Ini_File_Errors error;
+    Ini_File_Error error;
     if (integer == NULL) {
         return ini_invalid_parameters;
     }
@@ -472,9 +472,9 @@ enum Ini_File_Errors ini_section_find_integer(struct Ini_Section *const ini_sect
     return convert_to_integer(value, integer);
 }
 
-enum Ini_File_Errors ini_file_find_integer(struct Ini_File *const ini_file, const char *const section, const char *const key, long *integer) {
+Ini_File_Error ini_file_find_integer(struct Ini_File *const ini_file, const char *const section, const char *const key, long *const integer) {
     char *value;
-    enum Ini_File_Errors error;
+    Ini_File_Error error;
     if (integer == NULL) {
         return ini_invalid_parameters;
     }
@@ -485,7 +485,7 @@ enum Ini_File_Errors ini_file_find_integer(struct Ini_File *const ini_file, cons
     return convert_to_integer(value, integer);
 }
 
-static enum Ini_File_Errors convert_to_unsigned(const char *const value, unsigned long *const uint) {
+static Ini_File_Error convert_to_unsigned(const char *const value, unsigned long *const uint) {
     char *end;
     unsigned long ui_value = strtoul(value, &end, 10);
     if (*end != '\0') {
@@ -495,9 +495,9 @@ static enum Ini_File_Errors convert_to_unsigned(const char *const value, unsigne
     return ini_no_error;
 }
 
-enum Ini_File_Errors ini_section_find_unsigned(struct Ini_Section *const ini_section, const char *const key, unsigned long *uint) {
+Ini_File_Error ini_section_find_unsigned(struct Ini_Section *const ini_section, const char *const key, unsigned long *const uint) {
     char *value;
-    enum Ini_File_Errors error;
+    Ini_File_Error error;
     if (uint == NULL) {
         return ini_invalid_parameters;
     }
@@ -508,9 +508,9 @@ enum Ini_File_Errors ini_section_find_unsigned(struct Ini_Section *const ini_sec
     return convert_to_unsigned(value, uint);
 }
 
-enum Ini_File_Errors ini_file_find_unsigned(struct Ini_File *const ini_file, const char *const section, const char *const key, unsigned long *uint) {
+Ini_File_Error ini_file_find_unsigned(struct Ini_File *const ini_file, const char *const section, const char *const key, unsigned long *const uint) {
     char *value;
-    enum Ini_File_Errors error;
+    Ini_File_Error error;
     if (uint == NULL) {
         return ini_invalid_parameters;
     }
@@ -521,7 +521,7 @@ enum Ini_File_Errors ini_file_find_unsigned(struct Ini_File *const ini_file, con
     return convert_to_unsigned(value, uint);
 }
 
-static enum Ini_File_Errors convert_to_double(const char *const value, double *const real) {
+static Ini_File_Error convert_to_double(const char *const value, double *const real) {
     char *end;
     double d_value = strtod(value, &end);
     if (*end != '\0') {
@@ -531,9 +531,9 @@ static enum Ini_File_Errors convert_to_double(const char *const value, double *c
     return ini_no_error;
 }
 
-enum Ini_File_Errors ini_section_find_double(struct Ini_Section *const ini_section, const char *const key, double *real)  {
+Ini_File_Error ini_section_find_double(struct Ini_Section *const ini_section, const char *const key, double *const real)  {
     char *value;
-    enum Ini_File_Errors error;
+    Ini_File_Error error;
     if (real == NULL) {
         return ini_invalid_parameters;
     }
@@ -544,9 +544,9 @@ enum Ini_File_Errors ini_section_find_double(struct Ini_Section *const ini_secti
     return convert_to_double(value, real);
 }
 
-enum Ini_File_Errors ini_file_find_double(struct Ini_File *const ini_file, const char *const section, const char *const key, double *real) {
+Ini_File_Error ini_file_find_double(struct Ini_File *const ini_file, const char *const section, const char *const key, double *const real) {
     char *value;
-    enum Ini_File_Errors error;
+    Ini_File_Error error;
     if (real == NULL) {
         return ini_invalid_parameters;
     }
@@ -574,7 +574,7 @@ static size_t max_size(const size_t a, const size_t b) {
         } \
     } while (0)
 
-enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file, const char *const name, const size_t name_len) {
+Ini_File_Error ini_file_add_section_sized(struct Ini_File *const ini_file, const char *const name, const size_t name_len) {
     size_t section_index;
     char *copied_name;
     if (ini_file == NULL) {
@@ -605,14 +605,14 @@ enum Ini_File_Errors ini_file_add_section_sized(struct Ini_File *const ini_file,
     return ini_no_error;
 }
 
-enum Ini_File_Errors ini_file_add_section(struct Ini_File *const ini_file, const char *const name) {
+Ini_File_Error ini_file_add_section(struct Ini_File *const ini_file, const char *const name) {
     if (name == NULL) {
         return ini_section_not_provided;
     }
     return ini_file_add_section_sized(ini_file, name, strlen(name));
 }
 
-enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file, const char *const key, const size_t key_len, const char *const value, const size_t value_len) {
+Ini_File_Error ini_file_add_property_sized(struct Ini_File *const ini_file, const char *const key, const size_t key_len, const char *const value, const size_t value_len) {
     size_t property_index;
     struct Key_Value_Pair *property;
     char *copied_key, *copied_value;
@@ -652,7 +652,7 @@ enum Ini_File_Errors ini_file_add_property_sized(struct Ini_File *const ini_file
     return ini_no_error;
 }
 
-enum Ini_File_Errors ini_file_add_property(struct Ini_File *const ini_file, const char *const key, const char *const value) {
+Ini_File_Error ini_file_add_property(struct Ini_File *const ini_file, const char *const key, const char *const value) {
     if (key == NULL) {
         return ini_key_not_provided;
     }
@@ -662,7 +662,7 @@ enum Ini_File_Errors ini_file_add_property(struct Ini_File *const ini_file, cons
     return ini_file_add_property_sized(ini_file, key, strlen(key), value, strlen(value));
 }
 
-enum Ini_File_Errors ini_file_save(const struct Ini_File *const ini_file, const char *const filename) {
+Ini_File_Error ini_file_save(const struct Ini_File *const ini_file, const char *const filename) {
     FILE *file;
     if (ini_file == NULL) {
         return ini_invalid_parameters;
